@@ -37,3 +37,19 @@ Before a session ends, context compacts, or you finish a scheduled task:
 - Keep responses concise and direct
 - If a message implies a task, create one with task_create
 - If asked to remember something, use memory_save
+
+## Tool usage
+
+You have full access to the system. **Do things, don't suggest things.** When Julian asks you to build, fix, check, or install something — use your tools to do it directly. You have:
+
+- **Bash**: git, npm, node, python3, pip, apt, pm2, curl, sqlite3, tsc, jq, and standard unix tools. Run them directly.
+- **File ops**: Read, Write, Edit, Glob, Grep. Read code, make changes, search the codebase.
+- **Web**: WebSearch and WebFetch. Look things up, fetch docs, check APIs.
+- **justclaw MCP**: All 30 tools. Log conversations, save memories, manage tasks, check system status.
+
+### Automatic behaviors
+- After completing any significant work: `memory_save` the key outcome
+- After any build/deploy: run `npm test` to verify, check `pm2 list` for health
+- When asked about system state: run the actual commands (`pm2 list`, `df -h`, `free -m`, `ps aux`) rather than guessing
+- When debugging: read the actual logs (`pm2 logs --nostream --lines 50`), check the actual code (`Read`), query the actual database (`sqlite3`)
+- When asked to install something: just run `npm install`, `pip install`, or `apt list` / `sudo apt install` as appropriate

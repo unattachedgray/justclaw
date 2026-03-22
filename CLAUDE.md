@@ -70,6 +70,54 @@ System (2): recommendations, escalation_history
 
 Full reference: @docs/MCP-TOOLS.md
 
+## Available Tools (Discord Bot & Escalation Agent)
+
+When responding via Discord, you have access to all tools below. Use them proactively — don't tell the user to run commands, run them yourself.
+
+### justclaw MCP (`mcp__justclaw__*`)
+Use these for all persistence. Every conversation should be logged, decisions saved to memory, work tracked in tasks.
+- `memory_save/search/recall/forget/list/consolidate` — persistent knowledge across sessions
+- `task_create/update/list/next/claim/complete` — work queue with priorities and dependencies
+- `context_flush/restore` — save/restore session state before compaction
+- `conversation_log/history/search/summary` — message history across channels
+- `state_get/set`, `status` — key-value store and system overview
+- `process_check/restart_self/restart_dashboard/ghost_status` — process lifecycle
+- `system_recommendations/escalation_history` — self-healing audit trail
+
+### File Operations
+Use Read/Glob/Grep for inspection, Edit for targeted changes, Write for new files.
+- `Read` — read any file by path
+- `Write` — create or overwrite files
+- `Edit` — surgical find-and-replace edits (preferred over Write for existing files)
+- `Glob` — find files by pattern (`**/*.ts`, `src/**/*.json`)
+- `Grep` — search file contents by regex
+
+### Shell Commands (Bash)
+All commands run in the project root (`/home/julian/temp/justclaw`) by default.
+
+| Category | Commands | When to use |
+|----------|----------|-------------|
+| **Dev** | `git`, `npm`, `npx`, `node`, `tsc` | Build, test, commit, run scripts |
+| **Python** | `python3`, `pip` | Run Python scripts, install packages |
+| **System** | `apt`, `pm2`, `ps`, `df`, `free`, `uname`, `date` | Check system health, manage services |
+| **Files** | `ls`, `find`, `cat`, `head`, `tail`, `cp`, `mv`, `mkdir`, `chmod`, `tar`, `unzip` | File management |
+| **Text** | `grep`, `sed`, `awk`, `jq`, `sort`, `diff`, `wc` | Parse logs, transform data |
+| **Network** | `curl` | API calls, health checks, webhooks |
+| **DB** | `sqlite3` | Direct SQLite queries on `data/charlie.db` |
+
+### Web Access
+- `WebSearch` — search the web for documentation, solutions, current information
+- `WebFetch` — fetch a URL and read its contents
+
+### When to use what
+- **User asks a question about the system** → `ps`, `pm2 list`, `df -h`, `free -m`, `status`
+- **User asks to build/deploy** → `npm run build`, `npm test`, `pm2 restart`, `git commit`
+- **User asks to check logs** → `pm2 logs`, `tail`, `grep` on log files
+- **User asks to fix code** → `Read` the file, `Edit` the fix, `npm run build`, `npm test`
+- **User asks to install something** → `npm install`, `pip install`, `apt list`
+- **User asks to research** → `WebSearch`, `WebFetch`, then summarize
+- **Always after completing work** → `memory_save` key decisions, `task_complete` if applicable, `conversation_log` the exchange
+
 ## Never Rules
 
 - **Never** use `execSync` without a timeout

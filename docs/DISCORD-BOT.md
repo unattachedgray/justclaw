@@ -50,6 +50,19 @@ Each channel gets `--resume <sessionId>`. Session ID extracted from stream event
 3. Wait 5s → SIGKILL survivors
 4. Retire all PIDs, close DB, exit
 
+## Tool Permissions
+
+The `claude -p` process spawned for each Discord message has `--allowedTools` granting:
+
+- **justclaw MCP** (`mcp__justclaw__*`): all 30 tools for memory, tasks, context, conversations, state, process management, and system health
+- **File ops**: `Read`, `Write`, `Edit`, `Glob`, `Grep` — full filesystem access
+- **Web**: `WebSearch`, `WebFetch` — search and fetch web content
+- **Bash**: `git`, `npm`, `npx`, `node`, `python3`, `pip`, `apt`, `pm2`, `curl`, `sqlite3`, `tsc`, `jq`, `sed`, `awk`, plus standard unix utilities (`ls`, `find`, `cat`, `head`, `tail`, `grep`, `cp`, `mv`, `mkdir`, `chmod`, `tar`, `unzip`, `sort`, `diff`, `wc`, `ps`, `df`, `free`, `uname`, `date`, `echo`)
+
+The escalation agent has a similar but slightly reduced set (no Write/Edit, no python3/pip — diagnosis and repair only, not code authoring).
+
+Tool permissions are defined in `src/discord/bot.ts` (line ~390) and `src/discord/escalation.ts` (line ~175). To add or remove tools, edit the `--allowedTools` array in those files and rebuild.
+
 ## Critical Config
 
 - `JUSTCLAW_NO_DASHBOARD: '1'` in all `claude -p` spawn env — prevents MCP server from killing pm2 dashboard
