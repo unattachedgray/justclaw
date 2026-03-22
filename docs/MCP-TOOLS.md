@@ -1,4 +1,4 @@
-# MCP Tools Reference (30 total)
+# MCP Tools Reference (36 total)
 
 ## Memory (6)
 | Tool | Description |
@@ -50,6 +50,24 @@
 | `process_restart_self` | Exit for process manager restart |
 | `process_restart_dashboard` | Kill and respawn dashboard |
 | `process_ghost_status` | Get adaptive ghost check state |
+
+## Goals (3)
+| Tool | Description |
+|------|-------------|
+| `goal_set` | Create or update a persistent goal with title, description, priority, target_date |
+| `goal_list` | List active goals (or archived with `include_archived: true`) |
+| `goal_archive` | Archive a goal by title (moves to `goals-archived` namespace) |
+
+Goals are stored in the `memories` table with `type='goal'`, `namespace='goals'`. They drive daily task generation via the `skills/daily-goals/SKILL.md` scheduled skill.
+
+## Learnings (3)
+| Tool | Description |
+|------|-------------|
+| `learning_add` | Record a learning with category (error/correction/discovery/skill), trigger, lesson, area |
+| `learning_search` | Search learnings by category/area/keyword with limit |
+| `learning_stats` | Get counts by category and area, plus total and recent (7d) counts |
+
+Learnings are stored in the `learnings` table (schema v8). Categories: `error` (something broke), `correction` (user corrected behavior), `discovery` (found a better approach), `skill` (acquired new capability).
 
 ## System Health (2)
 | Tool | Description |

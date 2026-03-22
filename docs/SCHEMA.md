@@ -1,4 +1,4 @@
-# Database Schema (v4)
+# Database Schema (v8)
 
 SQLite with WAL mode, FTS5. Schema defined in `src/db.ts` with automatic migration.
 
@@ -13,9 +13,16 @@ SQLite with WAL mode, FTS5. Schema defined in `src/db.ts` with automatic migrati
 | `process_registry` | pid, role, status (active/retired), started_at, retired_at, meta | v3: PID lifecycle tracking |
 | `playbook` | goal, pattern, action, confidence, source, times_used | v4: learned remediation patterns |
 | `escalation_log` | goal, trigger_detail, diagnosis, action_taken, recommendation, outcome | v4: escalation audit trail |
+| `learnings` | category, trigger, lesson, area, applied_count | v8: structured self-improvement from errors/corrections |
 | `daily_log` | date, entry, category | Append-only activity journal |
 | `state` | key (PK), value | KV store + suspicious_pid_* entries |
-| `schema_meta` | key (PK), value | Version tracking (currently v4) |
+| `schema_meta` | key (PK), value | Version tracking (currently v8) |
+
+### Tasks Extra Columns (v8)
+| Column | Type | Default | Notes |
+|--------|------|---------|-------|
+| `auto_execute` | INTEGER | 0 | When 1, task can be auto-executed by scheduled task runner |
+| `recurrence` | TEXT | NULL | Cron-style recurrence (e.g., `cron:0 8 * * 1-5`) |
 
 ## Self-Healing Features
 

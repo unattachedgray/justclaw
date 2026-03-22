@@ -90,6 +90,27 @@ function getDueTasks(db: DB): DueTask[] {
   }));
 }
 
+/** Query for auto-executable tasks (flagged for autonomous execution). */
+function getAutoExecuteTasks(db: DB): DueTask[] {
+  const rows = db.fetchall(
+    `SELECT id, title, description, priority, tags, recurrence, due_at
+     FROM tasks
+     WHERE auto_execute = 1
+       AND status = 'pending'
+     ORDER BY priority ASC, created_at ASC
+     LIMIT 1`,
+  );
+  return rows.map((r) => ({
+    id: r.id as number,
+    title: r.title as string,
+    description: (r.description as string) || '',
+    priority: r.priority as number,
+    tags: (r.tags as string) || '',
+    recurrence: (r.recurrence as string) || '',
+    due_at: (r.due_at as string) || '',
+  }));
+}
+
 /** Spawn claude -p with a task prompt and collect the result. */
 function runClaudeForTask(db: DB, task: DueTask): Promise<string> {
   const claudeBin = findClaudeBin();
@@ -222,7 +243,39 @@ export async function checkAndRunScheduledTasks(
   }
 
   const dueTasks = getDueTasks(db);
-  if (dueTasks.length === 0) return;
+  if (dueTasks.length === 0) {
+    // Check for auto-executable tasks if no scheduled tasks are due.
+    const autoExecuteEnabled = db.fetchone(
+      "SELECT value FROM state WHERE key = 'auto_execute_enabled'",
+    );
+    // Auto-execute is opt-in: must be explicitly enabled.
+    if (autoExecuteEnabled?.value === 'true') {
+      const autoTasks = getAutoExecuteTasks(db);
+      if (autoTasks.length > 0) {
+        // Run auto-execute task with same flow as scheduled tasks.
+        const task = autoTasks[0];
+        runningTaskId = task.id;
+        log.info('Auto-executing task', { id: task.id, title: task.title });
+        db.execute("UPDATE tasks SET status = 'active', updated_at = ? WHERE id = ?", [db.now(), task.id]);
+        try {
+          const channel = await client.channels.fetch(channelId);
+          if (channel && 'send' in channel) {
+            await (channel as TextChannel).send(`🤖 **Auto-executing task:** ${task.title}`);
+            const result = await runClaudeForTask(db, task);
+            for (const chunk of splitMessage(result)) {
+              await (channel as TextChannel).send(chunk);
+            }
+          }
+        } catch (err) {
+          log.error('Auto-execute task failed', { taskId: task.id, error: String(err) });
+          db.execute("UPDATE tasks SET status = 'pending', updated_at = ? WHERE id = ?", [db.now(), task.id]);
+        } finally {
+          runningTaskId = null;
+        }
+      }
+    }
+    return;
+  }
 
   const task = dueTasks[0];
   runningTaskId = task.id;

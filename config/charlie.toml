@@ -17,3 +17,9 @@ auto_flush_on_exit = true
 
 [charlie.tasks]
 default_priority = 5
+
+[charlie.autonomy]
+active_hours_start = 8
+active_hours_end = 22
+max_proactive_messages_per_day = 3
+auto_execute_tasks = false  # Set true to allow autonomous task execution

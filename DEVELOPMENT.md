@@ -25,7 +25,7 @@ justclaw is a **persistence and automation layer** for Claude Code CLI. It makes
 ## Current Status (as of 2026-03-21)
 
 ### Completed
-- [x] Core MCP server with 30 tools (memory, tasks, context, conversations, state, process, system)
+- [x] Core MCP server with 36 tools (memory, tasks, context, conversations, goals, learnings, state, process, system)
 - [x] SQLite schema v2 with FTS5 for memories AND conversations
 - [x] Memory namespaces (`global`, `project:<name>`, `session:<id>`)
 - [x] Memory access tracking (`access_count`, `last_accessed`)
@@ -64,6 +64,15 @@ justclaw is a **persistence and automation layer** for Claude Code CLI. It makes
 - [x] Build skill — PRD-driven autonomous build loop with 5-dimension plan verification and quality gates (ralph+GSD hybrid)
 - [x] Newskill skill — 6-phase skill builder: requirements → research → security audit → design → build → register
 - [x] SessionStart hook lists all skills and auto-suggests `/newskill` when capabilities are missing
+- [x] Goal-driven task generation — `goal_set/list/archive` MCP tools + daily-goals skill
+- [x] Awareness heartbeat — proactive checks (overdue tasks, stale goals, recurring errors) every 3rd cycle
+- [x] Active hours + daily message budget — suppress proactive messages outside 8am-10pm, max 3/day
+- [x] Learnings system — structured self-improvement (`learning_add/search/stats`) from errors and corrections
+- [x] Autonomous task execution — `auto_execute` flag on tasks, opt-in via state key, restricted tool set
+- [x] Memory consolidation automation — expired memories cleaned every 72 heartbeat cycles (~6h)
+- [x] Schema v8 (learnings table, auto_execute column on tasks)
+- [x] Claude Code CLI session tracking on dashboard (`/api/claude-sessions`, `/api/claude-usage`)
+- [x] False crash-loop detection fix (uptime-based, auto-reset stale PM2 counters)
 
 ### Not yet implemented
 - [ ] npm publish as `justclaw`
@@ -103,6 +112,16 @@ Informed by OpenClaw feature comparison. All items leverage Claude Code native f
 - [x] **Build skill**: `skills/build/SKILL.md` — PRD-driven autonomous build. Combines ralph's fresh-context-per-story with GSD's 5-dimension plan verification (completeness, feasibility, independence, testability, order). Quality gates per story (build, test, size limits). `/build [prd]` command. (2026-03-21)
 - [x] **Newskill builder**: `.claude/commands/newskill.md` — 6-phase research-and-build: requirements gathering (interactive questionnaire or args), web research (5-10 implementations), security audit (5 critical + 3 warning checks), design (combine best patterns), build (SKILL.md + supporting files + test cases), register & document. (2026-03-21)
 - [x] **Auto-skill discovery**: SessionStart hook updated to list all available skills and suggest `/newskill` when the task needs capabilities not yet available. (2026-03-21)
+
+### Sprint: Intentional Autonomy (2026-03-22)
+Inspired by OpenClaw's proactive architecture (hooks + cron + heartbeat awareness). justclaw replicates the same autonomy using Claude Code native features + minimal custom code.
+
+- [x] **Goal-driven daily tasks**: `src/goals.ts` — 3 MCP tools (`goal_set`, `goal_list`, `goal_archive`). Goals stored in memories table with `namespace='goals'`. `skills/daily-goals/SKILL.md` generates 3-5 tasks per morning from active goals. Tasks tagged `auto-generated`, priority 3 (won't outrank user work). (2026-03-22)
+- [x] **Awareness heartbeat**: `src/discord/awareness.ts` — 4 proactive checks beyond health: overdue tasks, stale goals (48h no progress), auto-task results ready for review, recurring error patterns. Runs every 3rd heartbeat cycle (~15min). (2026-03-22)
+- [x] **Active hours + message budget**: Config in `charlie.toml` (`active_hours_start/end`, `max_proactive_messages_per_day`). Proactive messages suppressed outside hours. Budget tracked in state table, max 3/day default. (2026-03-22)
+- [x] **Learnings system**: `src/learnings.ts` — 3 MCP tools (`learning_add`, `learning_search`, `learning_stats`). Schema v8 adds `learnings` table. Categories: error, correction, discovery, skill. Injected into escalation and task generation prompts. (2026-03-22)
+- [x] **Autonomous task execution**: Tasks with `auto_execute=1` flag run without user prompting. Opt-in via `state_set('auto_execute_enabled', 'true')`. Runs in scheduled-tasks.ts when no recurring tasks are due. (2026-03-22)
+- [x] **Memory consolidation automation**: Heartbeat cleans expired memories every 72 cycles (~6h). No LLM needed — pure SQL delete. (2026-03-22)
 
 ### Future considerations
 - **Autonomous watcher**: Lightweight Node.js process that monitors Discord when Claude Code isn't running, buffers messages to SQLite.
@@ -168,13 +187,18 @@ JUSTCLAW/
     tasks.ts              — 6 tools: create/update/list/next/claim/complete
     context.ts            — 5 tools: flush/restore/today, daily_log add/get
     conversations.ts      — 4 tools: log/history/search/summary
+    goals.ts              — 3 tools: set/list/archive (persistent user objectives)
+    learnings.ts          — 3 tools: add/search/stats (structured self-improvement)
     processes.ts          — 4 tools: check/restart_self/restart_dashboard/ghost_status
     dashboard/
       app.ts              — Hono HTTP server, routes, PID management
-      api.ts              — All API handlers (status, tasks, memories, conversations, logs, processes, SSE)
+      api.ts              — All API handlers + Claude session tracking
+      claude-sessions.ts  — Parses ~/.claude/ JSONL for token/cost tracking
       sse.ts              — Server-Sent Events manager for live refresh
       html.ts             — Dashboard HTML/CSS/JS template
-      html-extras.ts      — Activity heatmap + quick actions panel
+      html-extras.ts      — Heatmap + quick actions + Claude sessions panel
+    discord/
+      awareness.ts        — Proactive checks (overdue tasks, stale goals, recurring errors)
   config/
     charlie.toml          — Persona configuration
   skills/
@@ -183,6 +207,7 @@ JUSTCLAW/
     morning-briefing/     — Daily briefing scheduled task
     task-review/          — Task work session
     security-audit/       — On-demand security audit (/security-audit)
+    daily-goals/          — Goal-driven daily task generation
     hats/                 — Hat system skill (/hats)
     eval/                 — Eval framework skill (/eval)
     build/                — PRD-driven build skill (/build)

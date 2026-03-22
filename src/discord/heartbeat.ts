@@ -15,6 +15,8 @@ import { getLogger } from '../logger.js';
 import { runAllChecks, type HeartbeatReport } from './heartbeat-checks.js';
 import { markIssueSeen, markIssueResolved, shouldEscalate, escalate, formatRecommendations } from './escalation.js';
 import { checkAndRunScheduledTasks } from './scheduled-tasks.js';
+import { runAwarenessChecks, isWithinActiveHours, getMessageBudget, spendMessageBudget, formatAwarenessMessage } from './awareness.js';
+import { loadConfig } from '../config.js';
 
 const log = getLogger('heartbeat');
 
@@ -266,6 +268,49 @@ export function startHeartbeat(opts: HeartbeatOpts): { stop: () => void; runNow:
       checkAndRunScheduledTasks(opts.db, opts.client, opts.channelId).catch((err) => {
         log.error('Scheduled task check failed', { error: String(err) });
       });
+
+      // Memory consolidation: every 72 cycles (~6h), clean up expired memories.
+      if (state.totalChecks % 72 === 0 && state.totalChecks > 0) {
+        try {
+          const expired = opts.db.fetchall(
+            "SELECT id, key FROM memories WHERE expires_at IS NOT NULL AND expires_at < datetime('now')",
+          );
+          for (const mem of expired) {
+            opts.db.execute('DELETE FROM memories WHERE id = ?', [mem.id]);
+            log.info('Expired memory cleaned', { key: mem.key });
+          }
+          if (expired.length > 0) {
+            log.info('Memory consolidation complete', { expiredCount: expired.length });
+          }
+        } catch (err) {
+          log.error('Memory consolidation failed', { error: String(err) });
+        }
+      }
+
+      // Awareness checks: run every 3rd cycle (~15min). Proactive, not reactive.
+      if (state.totalChecks % 3 === 0) {
+        try {
+          const config = loadConfig();
+          const inActiveHours = isWithinActiveHours(
+            config.active_hours_start, config.active_hours_end, config.timezone,
+          );
+
+          if (inActiveHours) {
+            const budget = getMessageBudget(opts.db, config.max_proactive_messages_per_day);
+            if (budget.remaining > 0) {
+              const signals = runAwarenessChecks(opts.db);
+              if (signals.length > 0) {
+                const msg = formatAwarenessMessage(signals);
+                await postToDiscord(msg);
+                spendMessageBudget(opts.db);
+                log.info('Awareness message sent', { signals: signals.length, budgetRemaining: budget.remaining - 1 });
+              }
+            }
+          }
+        } catch (err) {
+          log.error('Awareness check failed', { error: String(err) });
+        }
+      }
 
       state.consecutiveErrors = 0;
     } catch (err) {

@@ -6,6 +6,8 @@ import { registerMemoryTools } from './memory.js';
 import { registerTaskTools } from './tasks.js';
 import { registerContextTools } from './context.js';
 import { registerConversationTools } from './conversations.js';
+import { registerGoalTools } from './goals.js';
+import { registerLearningTools } from './learnings.js';
 import { addToWhitelist, removeFromWhitelist, getWhitelist, silenceAlert, unsilenceAlert, getActiveSilences } from './alert-manager.js';
 import { auditProcesses, getSuspiciousProcesses, getSuggestions } from './process-registry.js';
 import { spawnDashboard, readPidFile } from './processes.js';
@@ -31,6 +33,8 @@ export function createServer(opts: {
   registerTaskTools(server, _db);
   registerContextTools(server, _db);
   registerConversationTools(server, _db);
+  registerGoalTools(server, _db);
+  registerLearningTools(server, _db);
   // Process management tools — delegate to process-registry.ts (SQLite-backed).
   server.tool(
     'process_check',

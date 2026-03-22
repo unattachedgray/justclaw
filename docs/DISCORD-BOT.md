@@ -54,7 +54,7 @@ Each channel gets `--resume <sessionId>`. Session ID extracted from stream event
 
 The `claude -p` process spawned for each Discord message has `--allowedTools` granting:
 
-- **justclaw MCP** (`mcp__justclaw__*`): all 30 tools for memory, tasks, context, conversations, state, process management, and system health
+- **justclaw MCP** (`mcp__justclaw__*`): all 36 tools for memory, tasks, goals, learnings, context, conversations, state, process management, and system health
 - **File ops**: `Read`, `Write`, `Edit`, `Glob`, `Grep` — full filesystem access
 - **Web**: `WebSearch`, `WebFetch` — search and fetch web content
 - **Bash**: `git`, `npm`, `npx`, `node`, `python3`, `pip`, `apt`, `pm2`, `curl`, `sqlite3`, `tsc`, `jq`, `sed`, `awk`, plus standard unix utilities (`ls`, `find`, `cat`, `head`, `tail`, `grep`, `cp`, `mv`, `mkdir`, `chmod`, `tar`, `unzip`, `sort`, `diff`, `wc`, `ps`, `df`, `free`, `uname`, `date`, `echo`)

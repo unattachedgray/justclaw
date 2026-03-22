@@ -59,12 +59,14 @@ pm2 save                           # Persist for reboot
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
 | `.mcp.json` | MCP server config — **must include `JUSTCLAW_NO_DASHBOARD: "1"`** |
 
-## MCP Tools (30)
+## MCP Tools (36)
 
 Memory (6): save, search, recall, forget, list, consolidate — FTS5, namespaces, access tracking
-Tasks (6): create, update, list, next, claim, complete — dependencies, agent claiming
+Tasks (6): create, update, list, next, claim, complete — dependencies, agent claiming, auto-execute
 Context (5): flush, restore, today, daily_log_add/get — compaction lifecycle
 Conversations (4): log, history, search, summary — FTS5 across channels
+Goals (3): set, list, archive — persistent objectives that drive daily task generation
+Learnings (3): add, search, stats — structured self-improvement from errors and corrections
 State/Status (3): get, set, status overview
 Process (4): check, restart_self, restart_dashboard, ghost_status
 System (2): recommendations, escalation_history

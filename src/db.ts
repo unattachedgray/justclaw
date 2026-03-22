@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 
 const SCHEMA_SQL = `
 -- Memories: durable facts, preferences, decisions, context.
@@ -220,6 +220,22 @@ const MIGRATIONS: Record<number, string[]> = {
     // Token usage tracking for claude -p runs (equivalent cost display).
     'ALTER TABLE process_registry ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0',
     'ALTER TABLE process_registry ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0',
+  ],
+  8: [
+    // Learnings: structured self-improvement from errors, corrections, discoveries.
+    `CREATE TABLE IF NOT EXISTS learnings (
+        id            INTEGER PRIMARY KEY,
+        category      TEXT    NOT NULL,
+        trigger       TEXT    NOT NULL,
+        lesson        TEXT    NOT NULL,
+        area          TEXT,
+        applied_count INTEGER NOT NULL DEFAULT 0,
+        created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE INDEX IF NOT EXISTS idx_learnings_category ON learnings(category)`,
+    `CREATE INDEX IF NOT EXISTS idx_learnings_area ON learnings(area)`,
+    // Tasks: auto_execute flag for autonomous execution.
+    'ALTER TABLE tasks ADD COLUMN auto_execute INTEGER NOT NULL DEFAULT 0',
   ],
 };
 
