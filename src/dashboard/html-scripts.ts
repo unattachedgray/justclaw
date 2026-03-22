@@ -1,5 +1,7 @@
 /** Dashboard inline JavaScript — extracted to stay under 500-line file limit. */
 
+import { getEditModeScripts } from './html-edit-mode.js';
+
 export function getDashboardScripts(): string {
   return `
 const $ = id => document.getElementById(id);
@@ -88,6 +90,9 @@ ${getProcessScripts()}
 // --- Logs ---
 ${getLogScripts()}
 
+// --- Edit mode ---
+${getEditModeScripts()}
+
 // --- SSE ---
 ${getSseScripts()}
 
@@ -131,13 +136,14 @@ function renderStats(d, m) {
   const ramColor = sys.mem_used_pct > 85 ? 'var(--red)' : sys.mem_used_pct > 70 ? 'var(--yellow)' : 'var(--green)';
   const diskColor = sys.disk_used_pct > 90 ? 'var(--red)' : sys.disk_used_pct > 75 ? 'var(--yellow)' : 'var(--green)';
   $('stats').innerHTML = [
-    '<div class="stat-card"><div class="label">Messages 24h</div><div class="value green">' + d.messages_24h + sparkline(msgData, 50, 18, 'var(--green)') + '</div></div>',
-    '<div class="stat-card"><div class="label">Work Queue</div><div class="value accent">' + (d.pending_tasks?.length || 0) + '</div></div>',
-    '<div class="stat-card"><div class="label">Agent Runs</div><div class="value purple">' + a.runs_today + '</div><div class="sub">' + (a.active > 0 ? a.active + ' active, ' : '') + 'avg ' + a.avg_duration_s + 's</div></div>',
-    '<div class="stat-card"><div class="label">Memories</div><div class="value purple">' + d.memory_count + '</div></div>',
-    '<div class="stat-card"><div class="label">RAM</div><div class="value" style="color:' + ramColor + '">' + sys.mem_used_pct + '%</div>' + gauge(sys.mem_used_pct, ramColor) + '</div>',
-    '<div class="stat-card"><div class="label">Disk</div><div class="value" style="color:' + diskColor + '">' + sys.disk_used_pct + '%</div>' + gauge(sys.disk_used_pct, diskColor) + '</div>',
+    '<div class="stat-card" data-sid="stat-messages"><div class="label">Messages 24h</div><div class="value green">' + d.messages_24h + sparkline(msgData, 50, 18, 'var(--green)') + '</div></div>',
+    '<div class="stat-card" data-sid="stat-queue"><div class="label">Work Queue</div><div class="value accent">' + (d.pending_tasks?.length || 0) + '</div></div>',
+    '<div class="stat-card" data-sid="stat-runs"><div class="label">Agent Runs</div><div class="value purple">' + a.runs_today + '</div><div class="sub">' + (a.active > 0 ? a.active + ' active, ' : '') + 'avg ' + a.avg_duration_s + 's</div></div>',
+    '<div class="stat-card" data-sid="stat-memories"><div class="label">Memories</div><div class="value purple">' + d.memory_count + '</div></div>',
+    '<div class="stat-card" data-sid="stat-ram"><div class="label">RAM</div><div class="value" style="color:' + ramColor + '">' + sys.mem_used_pct + '%</div>' + gauge(sys.mem_used_pct, ramColor) + '</div>',
+    '<div class="stat-card" data-sid="stat-disk"><div class="label">Disk</div><div class="value" style="color:' + diskColor + '">' + sys.disk_used_pct + '%</div>' + gauge(sys.disk_used_pct, diskColor) + '</div>',
   ].join('');
+  applyStatLayout();
   const bar = $('snapshot-bar');
   if (d.last_snapshot) {
     bar.style.display = 'block';

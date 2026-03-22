@@ -1,6 +1,7 @@
 /** Dashboard HTML template — justclaw Control Plane. */
 
 import { getDashboardScripts } from './html-scripts.js';
+import { getEditModeStyles, getEditToggleHtml } from './html-edit-mode.js';
 
 function getThemeStyles(): string {
   return `
@@ -379,6 +380,7 @@ ${getButtonStyles()}
 ${getTaskStyles()}
 ${getUtilStyles()}
 ${getResponsiveStyles()}
+${getEditModeStyles()}
 </style>
 </head>
 <body>
@@ -392,9 +394,9 @@ ${getResponsiveStyles()}
     <span class="svc-dot" id="svc-dashboard" title="Dashboard">Dash</span>
   </div>
   <div class="header-right">
-    <button class="theme-toggle" onclick="cycleTheme()" title="Cycle theme">
-      Theme: <span id="theme-label">midnight</span>
-    </button>
+    ${getEditToggleHtml()}
+    <button class="theme-toggle" onclick="cycleTheme()" title="Cycle theme">Theme: <span id="theme-label">midnight</span></button>
+    <button class="reset-layout-btn" onclick="resetLayout()" title="Reset to default layout">Reset</button>
     <div class="uptime-info">
       <span id="clock"></span>
       <span class="uptime-badge" id="uptime" title="Dashboard uptime">--</span>
@@ -417,27 +419,24 @@ ${getResponsiveStyles()}
   <div id="alerts-banner" class="alerts-banner" style="display:none"></div>
   <div id="snapshot-bar" class="snapshot-bar" style="display:none"></div>
   <div class="grid-overview">
-    <div class="panel">
-      <div class="panel-header">Work Queue</div>
+    <div class="panel" data-pid="panel-tasks">
+      <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Work Queue</div>
       <div class="panel-body" id="tasks"></div>
     </div>
-    <div class="panel">
-      <div class="panel-header">Scheduled Tasks</div>
+    <div class="panel" data-pid="panel-scheduled">
+      <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Scheduled Tasks</div>
       <div class="panel-body" id="scheduled-tasks"></div>
     </div>
-    <div class="panel">
-      <div class="panel-header">
-        Memories
-        <input class="search-box" id="mem-search" placeholder="Search..." />
-      </div>
+    <div class="panel" data-pid="panel-memories">
+      <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Memories <input class="search-box" id="mem-search" placeholder="Search..." /></div>
       <div class="panel-body" id="memories"></div>
     </div>
-    <div class="panel">
-      <div class="panel-header">Recent Conversations</div>
+    <div class="panel" data-pid="panel-convos">
+      <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Recent Conversations</div>
       <div class="panel-body" id="overview-convos"></div>
     </div>
-    <div class="panel">
-      <div class="panel-header">Daily Log</div>
+    <div class="panel" data-pid="panel-dailylog">
+      <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Daily Log</div>
       <div class="panel-body" id="daily-log"></div>
     </div>
   </div>
