@@ -64,6 +64,25 @@ function esc(s) {
   return d.innerHTML;
 }
 
+function toggleExpand(el) {
+  const item = el.closest('.expandable');
+  const detail = item.nextElementSibling;
+  if (!detail || !detail.classList.contains('expand-detail')) return;
+  const isOpen = detail.classList.toggle('open');
+  item.classList.toggle('open', isOpen);
+}
+
+function fmtTs(ts) {
+  if (!ts) return '-';
+  return ts.replace('T', ' ').slice(0, 16);
+}
+
+function detailRow(label, val) {
+  if (!val && val !== 0) return '';
+  return '<div class="detail-row"><span class="detail-label">' + label +
+    '</span><span class="detail-val">' + esc(String(val)) + '</span></div>';
+}
+
 // --- Overview renderers ---
 ${getOverviewRenderers()}
 
@@ -112,9 +131,24 @@ function renderStats(d) {
 function renderTasks(tasks) {
   const el = $('tasks');
   if (!tasks.length) { el.innerHTML = '<div class="empty">No work items</div>'; return; }
-  el.innerHTML = tasks.map(t => '<div class="task-item"><span class="badge ' + t.status + '">' +
-    t.status + '</span><span class="task-title">' + esc(t.title) +
-    '</span><span class="task-priority">P' + t.priority + '</span></div>').join('');
+  el.innerHTML = tasks.map(t => {
+    const tags = t.tags ? t.tags.split(',').map(x => '<span class="mem-tag">' + esc(x.trim()) + '</span>').join('') : '';
+    return '<div class="expandable" onclick="toggleExpand(this)">' +
+      '<div class="task-item"><span class="expand-chevron">&#9654;</span>' +
+      '<span class="badge ' + t.status + '">' + t.status + '</span>' +
+      '<span class="task-title">' + esc(t.title) + '</span>' +
+      '<span class="task-priority">P' + t.priority + '</span></div></div>' +
+      '<div class="expand-detail">' +
+        (t.description ? '<div class="detail-desc">' + esc(t.description) + '</div>' : '') +
+        detailRow('ID', t.id) +
+        detailRow('Created', fmtTs(t.created_at)) +
+        detailRow('Updated', fmtTs(t.updated_at)) +
+        (t.depends_on ? detailRow('Depends on', t.depends_on) : '') +
+        (t.assigned_to ? detailRow('Assigned', t.assigned_to) : '') +
+        (t.result ? detailRow('Result', t.result) : '') +
+        (tags ? '<div class="detail-row"><span class="detail-label">Tags</span><span class="detail-val">' + tags + '</span></div>' : '') +
+      '</div>';
+  }).join('');
 }
 
 function renderScheduledTasks(tasks) {
@@ -126,17 +160,24 @@ function renderScheduledTasks(tasks) {
     const isOverdue = due && due < now && t.status === 'pending';
     const dueClass = isOverdue ? 'overdue' : 'upcoming';
     const dueLabel = due ? formatDue(due, now) : 'no schedule';
-    const lastRun = t.status === 'completed' && t.result
-      ? '<div class="sched-result">Last: ' + esc(t.result.slice(0, 100)) + '</div>' : '';
-    return '<div class="sched-item">' +
-      '<div class="sched-title">' + esc(t.title) + '</div>' +
+    return '<div class="expandable" onclick="toggleExpand(this)">' +
+      '<div class="sched-item"><span class="expand-chevron">&#9654;</span>' +
+      '<span class="sched-title">' + esc(t.title) + '</span>' +
       '<div class="sched-meta">' +
         '<span class="sched-recurrence">' + esc(t.recurrence) + '</span>' +
         '<span class="badge ' + t.status + '">' + t.status + '</span>' +
         '<span class="sched-due ' + dueClass + '">Next: ' + dueLabel + '</span>' +
-      '</div>' +
-      lastRun +
-    '</div>';
+      '</div></div></div>' +
+      '<div class="expand-detail">' +
+        (t.description ? '<div class="detail-desc">' + esc(t.description) + '</div>' : '') +
+        detailRow('ID', t.id) +
+        detailRow('Due at', fmtTs(t.due_at)) +
+        detailRow('Created', fmtTs(t.created_at)) +
+        detailRow('Updated', fmtTs(t.updated_at)) +
+        detailRow('Priority', 'P' + t.priority) +
+        (t.tags ? detailRow('Tags', t.tags) : '') +
+        (t.result ? '<div class="detail-row"><span class="detail-label">Last run</span><span class="detail-val">' + esc(t.result) + '</span></div>' : '') +
+      '</div>';
   }).join('');
 }
 
@@ -158,11 +199,23 @@ function formatDue(due, now) {
 function renderMemories(mems) {
   const el = $('memories');
   if (!mems.length) { el.innerHTML = '<div class="empty">No memories</div>'; return; }
-  el.innerHTML = mems.map(m => '<div class="mem-item"><div class="mem-key">' + esc(m.key) +
-    '</div><div class="mem-content">' + esc(m.content?.slice(0,150)) +
-    '</div><div class="mem-meta"><span class="mem-tag">' + m.type + '</span>' +
-    (m.tags ? m.tags.split(',').map(t => '<span class="mem-tag">' + esc(t.trim()) + '</span>').join('') : '') +
-    '</div></div>').join('');
+  el.innerHTML = mems.map(m => {
+    const tags = m.tags ? m.tags.split(',').map(t => '<span class="mem-tag">' + esc(t.trim()) + '</span>').join('') : '';
+    return '<div class="expandable" onclick="toggleExpand(this)">' +
+      '<div class="mem-item"><span class="expand-chevron">&#9654;</span>' +
+      '<div class="mem-key">' + esc(m.key) + '</div>' +
+      '<div class="mem-content">' + esc(m.content?.slice(0,150)) + '</div>' +
+      '<div class="mem-meta"><span class="mem-tag">' + m.type + '</span>' + tags + '</div>' +
+      '</div></div>' +
+      '<div class="expand-detail">' +
+        '<div class="detail-desc">' + esc(m.content) + '</div>' +
+        (m.namespace ? detailRow('Namespace', m.namespace) : '') +
+        detailRow('Accessed', (m.access_count || 0) + ' times') +
+        detailRow('Last read', fmtTs(m.last_accessed)) +
+        detailRow('Created', fmtTs(m.created_at)) +
+        detailRow('Updated', fmtTs(m.updated_at)) +
+      '</div>';
+  }).join('');
 }
 
 function renderConvoList(msgs, targetId) {
@@ -181,10 +234,22 @@ function renderConvoList(msgs, targetId) {
 function renderDailyLog(entries) {
   const el = $('daily-log');
   if (!entries.length) { el.innerHTML = '<div class="empty">No activity today</div>'; return; }
-  el.innerHTML = entries.map(e => '<div class="log-entry">' +
-    (e.category ? '<span class="log-cat">' + esc(e.category) + '</span>' : '') +
-    esc(e.entry) + '<span style="color:var(--text2);font-size:0.7rem;margin-left:4px">' +
-    (e.created_at?.slice(11,16) || '') + '</span></div>').join('');
+  el.innerHTML = entries.map(e => {
+    const short = e.entry?.length > 120 ? e.entry.slice(0, 120) + '...' : e.entry;
+    const hasMore = e.entry?.length > 120;
+    if (!hasMore) {
+      return '<div class="log-entry">' +
+        (e.category ? '<span class="log-cat">' + esc(e.category) + '</span>' : '') +
+        esc(e.entry) + '<span style="color:var(--text2);font-size:0.7rem;margin-left:4px">' +
+        (e.created_at?.slice(11,16) || '') + '</span></div>';
+    }
+    return '<div class="expandable" onclick="toggleExpand(this)" style="padding:4px 6px">' +
+      '<div class="log-entry" style="border:none;padding:0"><span class="expand-chevron">&#9654;</span>' +
+      (e.category ? '<span class="log-cat">' + esc(e.category) + '</span>' : '') +
+      esc(short) + '<span style="color:var(--text2);font-size:0.7rem;margin-left:4px">' +
+      (e.created_at?.slice(11,16) || '') + '</span></div></div>' +
+      '<div class="expand-detail"><div class="detail-desc">' + esc(e.entry) + '</div></div>';
+  }).join('');
 }
 
 async function refreshOverview() {

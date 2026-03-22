@@ -92,12 +92,12 @@ export function createApiRoutes(db: DB): Hono {
     let rows;
     if (q) {
       rows = db.fetchall(
-        'SELECT m.key, m.content, m.type, m.tags, m.updated_at FROM memories_fts fts JOIN memories m ON m.id = fts.rowid WHERE memories_fts MATCH ? ORDER BY rank LIMIT 30',
+        'SELECT m.key, m.content, m.type, m.tags, m.namespace, m.access_count, m.last_accessed, m.created_at, m.updated_at FROM memories_fts fts JOIN memories m ON m.id = fts.rowid WHERE memories_fts MATCH ? ORDER BY rank LIMIT 30',
         [q],
       );
     } else {
       rows = db.fetchall(
-        'SELECT key, content, type, tags, updated_at FROM memories ORDER BY updated_at DESC LIMIT 30',
+        'SELECT key, content, type, tags, namespace, access_count, last_accessed, created_at, updated_at FROM memories ORDER BY updated_at DESC LIMIT 30',
       );
     }
     return c.json(rows);

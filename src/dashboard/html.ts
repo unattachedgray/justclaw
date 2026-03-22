@@ -225,11 +225,27 @@ function getButtonStyles(): string {
 
 function getTaskStyles(): string {
   return `
+/* Expandable item pattern — shared across panels */
+.expandable { cursor: pointer; transition: background 0.1s; border-radius: 6px; margin: 0 -6px; padding: 8px 6px; }
+.expandable:hover { background: var(--hover); }
+.expand-detail {
+  display: none; margin: 0 -6px; padding: 6px 10px 10px;
+  font-size: 0.75rem; color: var(--text2); line-height: 1.6;
+  border-bottom: 1px solid var(--border); background: var(--surface2); border-radius: 0 0 6px 6px;
+}
+.expand-detail.open { display: block; }
+.expand-detail .detail-row { display: flex; gap: 6px; padding: 2px 0; }
+.expand-detail .detail-label { color: var(--text2); min-width: 70px; flex-shrink: 0; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; }
+.expand-detail .detail-val { color: var(--text); word-break: break-word; }
+.expand-detail .detail-desc { color: var(--text); padding: 4px 0; white-space: pre-wrap; }
+.expand-chevron {
+  font-size: 0.6rem; color: var(--text2); transition: transform 0.15s; display: inline-block; margin-right: 4px;
+}
+.expandable.open .expand-chevron { transform: rotate(90deg); }
+
 .task-item {
   display: flex; align-items: flex-start; gap: 10px; padding: 8px 0;
-  border-bottom: 1px solid var(--border);
 }
-.task-item:last-child { border-bottom: none; }
 .badge {
   font-size: 0.6rem; padding: 2px 8px; border-radius: 12px;
   font-weight: 600; text-transform: uppercase; white-space: nowrap; flex-shrink: 0;
@@ -238,12 +254,10 @@ function getTaskStyles(): string {
 .badge.active { background: #0c2d1a; color: var(--green); }
 .badge.completed { background: #1a1a2e; color: var(--purple); }
 .badge.blocked { background: #2a1a1a; color: var(--red); }
+.badge.failed { background: #2a1a1a; color: var(--red); }
 .task-title { font-size: 0.85rem; flex: 1; min-width: 0; word-wrap: break-word; }
 .task-priority { font-size: 0.7rem; color: var(--text2); flex-shrink: 0; }
-.sched-item {
-  padding: 8px 0; border-bottom: 1px solid var(--border);
-}
-.sched-item:last-child { border-bottom: none; }
+.sched-item { padding: 8px 0; }
 .sched-title { font-size: 0.85rem; font-weight: 600; }
 .sched-meta {
   display: flex; gap: 8px; margin-top: 3px; font-size: 0.7rem; color: var(--text2);
