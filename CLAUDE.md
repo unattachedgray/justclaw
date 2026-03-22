@@ -4,6 +4,23 @@ SQLite-backed MCP server (30 tools) + Discord bot + deterministic heartbeat + se
 
 **Philosophy**: Deterministic code first, LLM only when reasoning is genuinely needed. Claude Code CLI is the brain; justclaw is the long-term memory, task queue, and lifecycle harness.
 
+## System Context
+
+| Property | Value |
+|----------|-------|
+| **Project name** | justclaw |
+| **Project root** | `/home/julian/temp/justclaw` |
+| **Repository** | `github.com/unattachedgray/justclaw` |
+| **Owner** | Julian (`julian` on this machine, `unattachedgray` on GitHub) |
+| **Host** | Lenovo ThinkCentre M725s, AMD Ryzen 5 PRO 2400G, 6.7GB RAM |
+| **OS** | Ubuntu 24.04 (Linux 6.8.0, x86_64) |
+| **Hostname** | `ubuntu-ThinkCentre-M725s` |
+| **Node.js** | v22+ |
+| **Discord channel** | Private server, single-user (Julian) |
+| **PM2 services** | `justclaw-dashboard` (Hono :8787), `justclaw-discord` (bot + heartbeat) |
+| **Database** | `data/charlie.db` (SQLite, WAL, FTS5, schema v6) |
+| **Debug mode** | Set `JUSTCLAW_DEBUG=1` in `.env` to suppress LLM escalation |
+
 ## Architecture
 
 ```

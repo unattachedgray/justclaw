@@ -182,7 +182,7 @@ export async function escalate(
     const response = await new Promise<string>((resolve, reject) => {
       const child = spawnChild('setsid', ['-w', 'bash', '-c', shellCmd], {
         stdio: ['ignore', 'pipe', 'pipe'],
-        env: { ...process.env, JUSTCLAW_NO_DASHBOARD: '1', CLAUDECODE: '' },
+          env: (() => { const e: Record<string, string | undefined> = { ...process.env, JUSTCLAW_NO_DASHBOARD: '1' }; delete e.CLAUDECODE; return e; })(),
       });
 
       let stdout = '';

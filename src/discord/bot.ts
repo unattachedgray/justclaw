@@ -402,7 +402,7 @@ async function callClaude(
   return new Promise<ClaudeResult>((resolvePromise, reject) => {
     const child = spawnChild('setsid', ['-w', 'bash', '-c', shellCmd], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, JUSTCLAW_NO_DASHBOARD: '1', CLAUDECODE: '' },
+      env: (() => { const e: Record<string, string | undefined> = { ...process.env, JUSTCLAW_NO_DASHBOARD: '1' }; delete e.CLAUDECODE; return e; })(),
     });
 
     // Track child PID for process management.
