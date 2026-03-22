@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { DB } from './db.js';
+import { cronNext } from './cron.js';
 
 /** Compute the next due date from a recurrence pattern and a base date. */
 function computeNextDue(recurrence: string, baseDue: string | null): string {
@@ -17,9 +18,8 @@ function computeNextDue(recurrence: string, baseDue: string | null): string {
       break;
     default:
       if (recurrence.startsWith('cron:')) {
-        // For cron expressions, advance by 1 day as a safe default.
-        // A full cron parser could be added later if needed.
-        base.setDate(base.getDate() + 1);
+        const expr = recurrence.slice(5);
+        return cronNext(expr, base).toISOString().replace('T', ' ').slice(0, 19);
       }
       break;
   }
