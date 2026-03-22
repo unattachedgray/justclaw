@@ -460,6 +460,8 @@ async function callClaude(
     let finalResult = '';
     let newSessionId: string | null = sessionId;
     let settled = false;
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
 
     const progress: ProgressState = {
       phases: [],
@@ -521,7 +523,10 @@ async function callClaude(
       clearInterval(inactivityTimer);
       if (child.pid) {
         activeClaudePids.delete(child.pid);
-        retireProcess(db, child.pid);
+        const tokens = (totalInputTokens || totalOutputTokens)
+          ? { input: totalInputTokens, output: totalOutputTokens }
+          : undefined;
+        retireProcess(db, child.pid, tokens);
       }
     }
 
@@ -542,6 +547,12 @@ async function callClaude(
             finalResult = (event.result as string) || '';
             const sid = event.session_id as string | undefined;
             if (sid) newSessionId = sid;
+            // Capture token usage from result event.
+            const usage = event.usage as Record<string, number> | undefined;
+            if (usage) {
+              totalInputTokens += usage.input_tokens || 0;
+              totalOutputTokens += usage.output_tokens || 0;
+            }
           }
         } catch {
           // Not JSON or partial — ignore.
@@ -579,6 +590,11 @@ async function callClaude(
             finalResult = (event.result as string) || '';
             const sid = event.session_id as string | undefined;
             if (sid) newSessionId = sid;
+            const usage = event.usage as Record<string, number> | undefined;
+            if (usage) {
+              totalInputTokens += usage.input_tokens || 0;
+              totalOutputTokens += usage.output_tokens || 0;
+            }
           }
         } catch { /* ignore */ }
       }

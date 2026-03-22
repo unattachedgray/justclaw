@@ -71,12 +71,19 @@ export function registerProcess(db: DB, pid: number, role: ProcessRole, meta = '
   log.info('Registered process', { pid, role, meta });
 }
 
-export function retireProcess(db: DB, pid: number): void {
-  db.execute(
-    "UPDATE process_registry SET status = 'retired', retired_at = datetime('now') WHERE pid = ? AND status = 'active'",
-    [pid],
-  );
-  log.info('Retired process', { pid });
+export function retireProcess(db: DB, pid: number, tokens?: { input: number; output: number }): void {
+  if (tokens) {
+    db.execute(
+      "UPDATE process_registry SET status = 'retired', retired_at = datetime('now'), input_tokens = ?, output_tokens = ? WHERE pid = ? AND status = 'active'",
+      [tokens.input, tokens.output, pid],
+    );
+  } else {
+    db.execute(
+      "UPDATE process_registry SET status = 'retired', retired_at = datetime('now') WHERE pid = ? AND status = 'active'",
+      [pid],
+    );
+  }
+  log.info('Retired process', { pid, ...(tokens || {}) });
 }
 
 export function getActiveProcesses(db: DB): RegisteredProcess[] {

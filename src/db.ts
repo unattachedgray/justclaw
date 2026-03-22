@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 
 const SCHEMA_SQL = `
 -- Memories: durable facts, preferences, decisions, context.
@@ -215,6 +215,11 @@ const MIGRATIONS: Record<number, string[]> = {
     // recurrence_source_id links spawned instances back to the original template.
     'ALTER TABLE tasks ADD COLUMN recurrence TEXT',
     'ALTER TABLE tasks ADD COLUMN recurrence_source_id INTEGER',
+  ],
+  7: [
+    // Token usage tracking for claude -p runs (equivalent cost display).
+    'ALTER TABLE process_registry ADD COLUMN input_tokens INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE process_registry ADD COLUMN output_tokens INTEGER NOT NULL DEFAULT 0',
   ],
 };
 
