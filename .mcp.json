@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "justclaw": {
+      "type": "stdio",
+      "command": "node",
+      "args": ["dist/index.js"],
+      "env": {
+        "JUSTCLAW_ROOT": ".",
+        "JUSTCLAW_CONFIG": "config/charlie.toml",
+        "JUSTCLAW_NO_DASHBOARD": "1"
+      }
+    }
+  }
+}

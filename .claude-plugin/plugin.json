@@ -1,0 +1,16 @@
+{
+  "name": "justclaw",
+  "description": "Persistent memory, tasks, context, and conversation state for an autonomous AI assistant",
+  "version": "0.1.0",
+  "license": "MIT",
+  "mcpServers": {
+    "justclaw": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/../dist/index.js"],
+      "env": {
+        "JUSTCLAW_ROOT": "${CLAUDE_PLUGIN_ROOT}/..",
+        "JUSTCLAW_CONFIG": "${CLAUDE_PLUGIN_ROOT}/../config/charlie.toml"
+      }
+    }
+  }
+}

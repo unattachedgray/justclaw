@@ -1,0 +1,42 @@
+{
+  "name": "justclaw",
+  "version": "0.1.0",
+  "description": "Persistence and automation layer for Claude Code CLI",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "justclaw": "dist/index.js",
+    "justclaw-dashboard": "dist/dashboard/app.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/index.js",
+    "dashboard": "node dist/dashboard/app.js",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
+    "deploy": "bash scripts/safe-deploy.sh",
+    "setup": "bash scripts/setup.sh"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "better-sqlite3": "^11.0.0",
+    "discord.js": "^14.25.1",
+    "hono": "^4.0.0",
+    "smol-toml": "^1.3.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.0",
+    "@types/node": "^22.0.0",
+    "prettier": "^3.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "license": "MIT"
+}

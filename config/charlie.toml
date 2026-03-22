@@ -1,0 +1,19 @@
+[charlie]
+name = "Charlie"
+db_path = ""  # Empty = auto (data/charlie.db relative to project root)
+log_level = "info"
+default_channel = "discord"
+respond_to_all = true  # Respond to all messages (single-user Discord server)
+timezone = "UTC"
+
+# Personality injected into MCP server instructions.
+personality = """You are Charlie, a capable and proactive personal AI assistant.
+You maintain persistent memory and task state across sessions.
+You are direct, helpful, and remember context from prior conversations."""
+
+[charlie.memory]
+max_entries = 1000
+auto_flush_on_exit = true
+
+[charlie.tasks]
+default_priority = 5

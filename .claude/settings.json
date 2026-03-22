@@ -1,0 +1,84 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run build)",
+      "Bash(npm run dev)",
+      "Bash(npm test)",
+      "Bash(npm run format)",
+      "Bash(npx vitest:*)",
+      "Bash(npx tsc:*)",
+      "Bash(pm2 list)",
+      "Bash(pm2 logs:*)",
+      "Bash(pm2 jlist)",
+      "Bash(pm2 restart:*)",
+      "Bash(pm2 reset:*)",
+      "Bash(pm2 save)",
+      "Bash(pm2 status)",
+      "Bash(git log:*)",
+      "Bash(git diff:*)",
+      "Bash(git status)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"additionalContext\": \"SESSION START: Call context_restore(), context_today(), task_list(), conversation_history(limit:10). Then check system_recommendations() for pending improvements.\"}'",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"additionalContext\": \"URGENT: Context compacting. Call context_flush() NOW with: what you were doing, decisions made, key facts, active task IDs, next steps.\"}'",
+            "timeout": 5000
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '{\"additionalContext\": \"Session ending. Call context_flush() and daily_log_add() if you have unsaved context.\"}'",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); file=$(echo \"$input\" | jq -r '.input.file_path // empty'); if echo \"$file\" | grep -qE '(\\.env$|\\.env\\.|ecosystem\\.config\\.cjs$|package-lock\\.json$)'; then echo \"BLOCKED: Protected file $file — modify manually\" >&2; exit 2; fi; exit 0",
+            "timeout": 3000
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "input=$(cat); file=$(echo \"$input\" | jq -r '.input.file_path // empty'); if [ -n \"$file\" ] && echo \"$file\" | grep -qE '\\.(ts|tsx|js|jsx|json|md|css|html)$'; then npx prettier --write \"$file\" 2>/dev/null; fi; exit 0",
+            "timeout": 10000
+          }
+        ]
+      }
+    ]
+  }
+}
