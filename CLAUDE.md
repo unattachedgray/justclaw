@@ -118,7 +118,36 @@ All commands run in the project root (`/home/julian/temp/justclaw`) by default.
 - **User asks to research** → `WebSearch`, `WebFetch`, then summarize
 - **Always after completing work** → `memory_save` key decisions, `task_complete` if applicable, `conversation_log` the exchange
 
-## Never Rules
+## System Safety — Protecting the Ubuntu Host
+
+This is a shared personal machine (Lenovo ThinkCentre M725s, 6.7GB RAM, HDD). Breaking it means everything stops. Follow these rules strictly.
+
+### Forbidden actions (will break the system)
+- **Never run `rm -rf /`** or any recursive delete outside the project directory
+- **Never `sudo` anything** without Julian explicitly asking. No `sudo apt remove`, `sudo rm`, `sudo systemctl stop`, `sudo kill`. If something needs sudo, tell Julian and let him decide.
+- **Never modify system config** — no editing `/etc/*`, `/boot/*`, `/sys/*`, `/proc/*`, crontab, systemd units outside the project, fstab, grub, network config, firewall rules
+- **Never kill processes you didn't start** — only kill PIDs registered in justclaw's `process_registry` or PM2. Never `kill -9` a PID from `ps aux` without verifying it's ours.
+- **Never fill the disk** — this machine has limited storage on HDD. Don't download large files (>100MB), don't generate unbounded logs, don't create large temp files without cleanup.
+- **Never modify Julian's personal files** — stay within `/home/julian/temp/justclaw` and `/tmp`. Don't touch `~/.bashrc`, `~/.profile`, `~/.ssh`, `~/.config` (except `~/.config/justclaw/`), other projects in `~/temp/`.
+- **Never uninstall system packages** — `apt remove` and `apt purge` are off limits. `apt list` and `apt search` are fine.
+
+### Caution required (ask first if unsure)
+- **`npm install -g`** — global installs affect the whole system. Prefer local `npm install` in the project.
+- **`pip install`** — use `pip install --user` or a venv, never system-wide pip.
+- **Large git operations** — `git clone` of big repos fills disk. Check `df -h` first if cloning anything.
+- **PM2 operations on other services** — only manage `justclaw-dashboard` and `justclaw-discord`. Don't touch other PM2 processes if any exist.
+- **Port binding** — justclaw uses port 8787. Don't bind other services to ports without checking what's already in use (`ss -tlnp`).
+- **CPU-intensive tasks** — this is a low-power machine (Ryzen 5 PRO, 6.7GB RAM). Don't run parallel builds, large compiles, or heavy compute. One thing at a time.
+
+### Safe defaults
+- **Work within the project**: `/home/julian/temp/justclaw` is your home. All file operations should be relative to here.
+- **Read before modifying**: always `Read` a file before `Edit`/`Write`.
+- **Test before deploying**: `npm run build && npm test` before `pm2 restart`.
+- **Check disk before downloads**: `df -h /home` if doing anything that creates files.
+- **Check memory before heavy ops**: `free -m` if spawning processes.
+- **Clean up after yourself**: remove temp files, don't leave stale logs growing.
+
+## Never Rules (Code Quality)
 
 - **Never** use `execSync` without a timeout
 - **Never** interpolate into SQL — use parameterized queries
