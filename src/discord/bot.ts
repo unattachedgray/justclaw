@@ -387,7 +387,48 @@ async function callClaude(
     '-p', message,
     '--output-format', 'stream-json',
     '--verbose',
-    '--allowedTools', 'mcp__justclaw__*',
+    '--allowedTools',
+    [
+      'mcp__justclaw__*',       // All justclaw MCP tools (memory, tasks, context, etc.)
+      'Bash(git:*)',            // Git operations
+      'Bash(npm:*)',            // npm install, run, etc.
+      'Bash(npx:*)',            // npx commands
+      'Bash(node:*)',           // Run Node.js scripts
+      'Bash(python3:*)',        // Python scripts
+      'Bash(pip:*)',            // Python packages
+      'Bash(apt:*)',            // System packages (apt list, apt search — install needs sudo)
+      'Bash(pm2:*)',            // Process management
+      'Bash(curl:*)',           // HTTP requests
+      'Bash(ls:*)',             // Directory listing
+      'Bash(cat:*)',            // Read files
+      'Bash(grep:*)',           // Search files
+      'Bash(find:*)',           // Find files
+      'Bash(head:*)',           // File preview
+      'Bash(tail:*)',           // Log tailing
+      'Bash(wc:*)',             // Word/line count
+      'Bash(df:*)',             // Disk usage
+      'Bash(free:*)',           // Memory usage
+      'Bash(ps:*)',             // Process listing
+      'Bash(uname:*)',          // System info
+      'Bash(date:*)',           // Date/time
+      'Bash(echo:*)',           // Output
+      'Bash(mkdir:*)',          // Create directories
+      'Bash(cp:*)',             // Copy files
+      'Bash(mv:*)',             // Move files
+      'Bash(chmod:*)',          // File permissions
+      'Bash(tar:*)',            // Archives
+      'Bash(unzip:*)',          // Unzip
+      'Bash(jq:*)',             // JSON processing
+      'Bash(sed:*)',            // Stream editing
+      'Bash(awk:*)',            // Text processing
+      'Bash(sort:*)',           // Sorting
+      'Bash(diff:*)',           // File diffs
+      'Bash(tsc:*)',            // TypeScript compiler
+      'Bash(sqlite3:*)',        // Direct SQLite queries
+      'Read', 'Write', 'Edit', // File operations
+      'Glob', 'Grep',          // Search tools
+      'WebSearch', 'WebFetch',  // Web access
+    ].join(' '),
   ];
   if (sessionId) {
     args.push('--resume', sessionId);

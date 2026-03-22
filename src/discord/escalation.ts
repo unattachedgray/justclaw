@@ -172,7 +172,16 @@ export async function escalate(
     const args = [
       '-p', prompt,
       '--output-format', 'json',
-      '--allowedTools', 'Bash(pm2:*) Bash(ps:*) Bash(journalctl:*) Bash(cat:*) Bash(tail:*) Bash(head:*) Bash(grep:*) Bash(kill:*) Read',
+      '--allowedTools',
+      [
+        'mcp__justclaw__*',
+        'Bash(pm2:*)', 'Bash(ps:*)', 'Bash(journalctl:*)',
+        'Bash(cat:*)', 'Bash(tail:*)', 'Bash(head:*)', 'Bash(grep:*)',
+        'Bash(kill:*)', 'Bash(df:*)', 'Bash(free:*)', 'Bash(uname:*)',
+        'Bash(ls:*)', 'Bash(npm:*)', 'Bash(node:*)', 'Bash(sqlite3:*)',
+        'Bash(curl:*)', 'Bash(git:*)',
+        'Read', 'Glob', 'Grep',
+      ].join(' '),
     ];
 
     const shellCmd = [claudeBin, ...args]
