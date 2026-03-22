@@ -14,6 +14,7 @@ import type { DB } from '../db.js';
 import { getLogger } from '../logger.js';
 import { runAllChecks, type HeartbeatReport } from './heartbeat-checks.js';
 import { markIssueSeen, markIssueResolved, shouldEscalate, escalate, formatRecommendations } from './escalation.js';
+import { checkAndRunScheduledTasks } from './scheduled-tasks.js';
 
 const log = getLogger('heartbeat');
 
@@ -260,6 +261,11 @@ export function startHeartbeat(opts: HeartbeatOpts): { stop: () => void; runNow:
         markIssueResolved('heartbeat:ORPHANS_KILLED');
         markIssueResolved('heartbeat:STALE_CLAUDE');
       }
+
+      // Check for due scheduled tasks (runs after health checks).
+      checkAndRunScheduledTasks(opts.db, opts.client, opts.channelId).catch((err) => {
+        log.error('Scheduled task check failed', { error: String(err) });
+      });
 
       state.consecutiveErrors = 0;
     } catch (err) {

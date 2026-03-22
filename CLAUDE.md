@@ -55,6 +55,7 @@ pm2 save                           # Persist for reboot
 | `src/discord/heartbeat.ts` | Heartbeat orchestrator: deterministic checks, dedup, presence flash, escalation |
 | `src/discord/heartbeat-checks.ts` | 9 pure TypeScript health checks |
 | `src/discord/escalation.ts` | Goal-driven LLM escalation for persistent issues |
+| `src/discord/scheduled-tasks.ts` | Executes due recurring tasks via claude -p from heartbeat tick |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
 | `.mcp.json` | MCP server config — **must include `JUSTCLAW_NO_DASHBOARD: "1"`** |
 
@@ -181,6 +182,8 @@ Full details: @docs/DISCORD-BOT.md
 ## Heartbeat (deterministic, $0)
 
 9 checks every 5min: process audit, stale claude scan, pm2 health, unanswered messages, system status, stuck tasks, doc staleness, event loop, memory usage. Persistent ALERTs escalate to Claude after 3 cycles. Healing verified at 2min.
+
+**Scheduled task executor:** After health checks, the heartbeat queries for recurring tasks past their `due_at`. Due tasks are executed via `claude -p` (`src/discord/scheduled-tasks.ts`), results posted to Discord, and `task_complete` called (which auto-spawns the next recurrence). One task at a time to avoid overload. Create recurring tasks with `task_create(recurrence: 'daily', due_at: '...')`.
 
 ## Self-Healing
 
