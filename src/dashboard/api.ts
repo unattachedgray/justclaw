@@ -60,17 +60,30 @@ export function createApiRoutes(db: DB): Hono {
 
   api.get('/tasks', (c) => {
     const status = c.req.query('status') || '';
+    const includeScheduled = c.req.query('include_scheduled') === '1';
+    const recurrenceFilter = includeScheduled ? '' : 'AND recurrence IS NULL';
     let rows;
     if (status) {
       rows = db.fetchall(
-        'SELECT * FROM tasks WHERE status = ? ORDER BY priority ASC, created_at DESC',
+        `SELECT * FROM tasks WHERE status = ? ${recurrenceFilter} ORDER BY priority ASC, created_at DESC`,
         [status],
       );
     } else {
       rows = db.fetchall(
-        "SELECT * FROM tasks ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 WHEN 'blocked' THEN 2 ELSE 3 END, priority ASC, created_at DESC LIMIT 50",
+        `SELECT * FROM tasks WHERE 1=1 ${recurrenceFilter} ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 WHEN 'blocked' THEN 2 ELSE 3 END, priority ASC, created_at DESC LIMIT 50`,
       );
     }
+    return c.json(rows);
+  });
+
+  api.get('/scheduled-tasks', (c) => {
+    const rows = db.fetchall(
+      `SELECT id, title, description, status, priority, tags, recurrence, due_at, created_at, updated_at, result
+       FROM tasks
+       WHERE recurrence IS NOT NULL
+       ORDER BY CASE status WHEN 'active' THEN 0 WHEN 'pending' THEN 1 ELSE 2 END, due_at ASC
+       LIMIT 50`,
+    );
     return c.json(rows);
   });
 

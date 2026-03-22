@@ -94,7 +94,7 @@ function getOverviewRenderers(): string {
 function renderStats(d) {
   const g = d._ghost || {};
   $('stats').innerHTML = [
-    ['Tasks', d.pending_tasks?.length || 0, 'accent'],
+    ['Work Queue', d.pending_tasks?.length || 0, 'accent'],
     ['Memories', d.memory_count, 'purple'],
     ['Messages 24h', d.messages_24h, 'green'],
     ['Log Today', d.today_log_entries, 'yellow'],
@@ -111,10 +111,48 @@ function renderStats(d) {
 
 function renderTasks(tasks) {
   const el = $('tasks');
-  if (!tasks.length) { el.innerHTML = '<div class="empty">No tasks</div>'; return; }
+  if (!tasks.length) { el.innerHTML = '<div class="empty">No work items</div>'; return; }
   el.innerHTML = tasks.map(t => '<div class="task-item"><span class="badge ' + t.status + '">' +
     t.status + '</span><span class="task-title">' + esc(t.title) +
     '</span><span class="task-priority">P' + t.priority + '</span></div>').join('');
+}
+
+function renderScheduledTasks(tasks) {
+  const el = $('scheduled-tasks');
+  if (!tasks.length) { el.innerHTML = '<div class="empty">No scheduled tasks</div>'; return; }
+  const now = new Date();
+  el.innerHTML = tasks.map(t => {
+    const due = t.due_at ? new Date(t.due_at + 'Z') : null;
+    const isOverdue = due && due < now && t.status === 'pending';
+    const dueClass = isOverdue ? 'overdue' : 'upcoming';
+    const dueLabel = due ? formatDue(due, now) : 'no schedule';
+    const lastRun = t.status === 'completed' && t.result
+      ? '<div class="sched-result">Last: ' + esc(t.result.slice(0, 100)) + '</div>' : '';
+    return '<div class="sched-item">' +
+      '<div class="sched-title">' + esc(t.title) + '</div>' +
+      '<div class="sched-meta">' +
+        '<span class="sched-recurrence">' + esc(t.recurrence) + '</span>' +
+        '<span class="badge ' + t.status + '">' + t.status + '</span>' +
+        '<span class="sched-due ' + dueClass + '">Next: ' + dueLabel + '</span>' +
+      '</div>' +
+      lastRun +
+    '</div>';
+  }).join('');
+}
+
+function formatDue(due, now) {
+  const diff = due - now;
+  const absDiff = Math.abs(diff);
+  const mins = Math.floor(absDiff / 60000);
+  const hours = Math.floor(absDiff / 3600000);
+  if (diff < 0) {
+    if (mins < 60) return mins + 'm overdue';
+    if (hours < 24) return hours + 'h overdue';
+    return Math.floor(hours / 24) + 'd overdue';
+  }
+  if (mins < 60) return 'in ' + mins + 'm';
+  if (hours < 24) return 'in ' + hours + 'h';
+  return 'in ' + Math.floor(hours / 24) + 'd';
 }
 
 function renderMemories(mems) {
@@ -151,13 +189,14 @@ function renderDailyLog(entries) {
 
 async function refreshOverview() {
   try {
-    const [status, tasks, mems, convos, log, ghost] = await Promise.all([
-      api('status'), api('tasks'), api('memories'),
+    const [status, tasks, scheduled, mems, convos, log, ghost] = await Promise.all([
+      api('status'), api('tasks'), api('scheduled-tasks'), api('memories'),
       api('conversations?limit=20'), api('daily-log'), api('ghost-state'),
     ]);
     status._ghost = ghost;
     renderStats(status);
     renderTasks(tasks);
+    renderScheduledTasks(scheduled);
     renderMemories(mems);
     renderConvoList(convos, 'overview-convos');
     renderDailyLog(log);

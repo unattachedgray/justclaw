@@ -157,10 +157,11 @@ function getCardAndPanelStyles(): string {
 .panel-body { flex: 1; overflow-y: auto; padding: 10px 14px; }
 .panel-body::-webkit-scrollbar { width: 5px; }
 .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
-.grid-2x2 {
-  display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
+.grid-overview {
+  display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr;
   gap: var(--gap); flex: 1; overflow: hidden;
 }
+.grid-overview .span-bottom { grid-column: span 1; }
 `;
 }
 
@@ -239,6 +240,27 @@ function getTaskStyles(): string {
 .badge.blocked { background: #2a1a1a; color: var(--red); }
 .task-title { font-size: 0.85rem; flex: 1; min-width: 0; word-wrap: break-word; }
 .task-priority { font-size: 0.7rem; color: var(--text2); flex-shrink: 0; }
+.sched-item {
+  padding: 8px 0; border-bottom: 1px solid var(--border);
+}
+.sched-item:last-child { border-bottom: none; }
+.sched-title { font-size: 0.85rem; font-weight: 600; }
+.sched-meta {
+  display: flex; gap: 8px; margin-top: 3px; font-size: 0.7rem; color: var(--text2);
+  flex-wrap: wrap; align-items: center;
+}
+.sched-recurrence {
+  font-size: 0.6rem; padding: 2px 8px; border-radius: 12px;
+  background: var(--surface2); color: var(--accent); font-weight: 600;
+  text-transform: uppercase;
+}
+.sched-due { font-family: var(--mono); font-size: 0.7rem; }
+.sched-due.overdue { color: var(--red); }
+.sched-due.upcoming { color: var(--green); }
+.sched-result {
+  font-size: 0.75rem; color: var(--text2); margin-top: 3px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
 `;
 }
 
@@ -290,7 +312,7 @@ function getResponsiveStyles(): string {
 @media (max-width: 900px) {
   .stats { flex-wrap: wrap; }
   .stat-card { min-width: 80px; }
-  .grid-2x2 { grid-template-columns: 1fr; grid-template-rows: auto; }
+  .grid-overview { grid-template-columns: 1fr; grid-template-rows: auto; }
   header h1 { font-size: 1.1rem; }
 }
 @media (max-width: 600px) {
@@ -378,10 +400,14 @@ ${getResponsiveStyles()}
 <div class="tab-page active" id="page-overview">
   <div class="stats" id="stats"></div>
   <div id="snapshot-bar" class="snapshot-bar" style="display:none"></div>
-  <div class="grid-2x2">
+  <div class="grid-overview">
     <div class="panel">
-      <div class="panel-header">Tasks</div>
+      <div class="panel-header">Work Queue</div>
       <div class="panel-body" id="tasks"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-header">Scheduled Tasks</div>
+      <div class="panel-body" id="scheduled-tasks"></div>
     </div>
     <div class="panel">
       <div class="panel-header">
