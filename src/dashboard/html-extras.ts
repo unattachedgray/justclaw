@@ -206,6 +206,69 @@ function qaCheckHealth() {
 `;
 }
 
+// --- Claude Sessions Panel ---
+
+export function getClaudeSessionsStyles(): string {
+  return `
+.session-row { display: grid; grid-template-columns: 1fr auto auto auto; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); align-items: center; font-size: 0.75rem; }
+.session-row:last-child { border: none; }
+.session-model { color: var(--purple); font-size: 0.65rem; }
+.session-tokens { color: var(--text2); font-size: 0.65rem; text-align: right; }
+.session-cache { color: var(--green); font-size: 0.65rem; }
+.session-cost { color: var(--yellow); font-size: 0.65rem; font-weight: 600; }
+.usage-stat { display: flex; flex-direction: column; align-items: center; padding: 4px 8px; }
+.usage-stat .val { font-size: 1.2rem; font-weight: 700; color: var(--accent); }
+.usage-stat .lbl { font-size: 0.6rem; color: var(--text2); }
+.usage-bar { display: flex; gap: 12px; justify-content: space-around; margin-bottom: 8px; padding: 6px 0; border-bottom: 1px solid var(--border); }
+`;
+}
+
+export function getClaudeSessionsScripts(): string {
+  return `
+async function fetchClaudeSessions() {
+  try {
+    const [sessions, usage] = await Promise.all([api('claude-sessions?limit=10'), api('claude-usage?days=7')]);
+    const el = $('claude-sessions');
+    if (!el) return;
+    let html = '<div class="usage-bar">';
+    html += '<div class="usage-stat"><span class="val">' + usage.total_sessions + '</span><span class="lbl">Sessions (7d)</span></div>';
+    html += '<div class="usage-stat"><span class="val">' + fmtTokens(usage.total_tokens) + '</span><span class="lbl">Total Tokens</span></div>';
+    html += '<div class="usage-stat"><span class="val">' + usage.avg_cache_hit_rate + '%</span><span class="lbl">Cache Hit</span></div>';
+    html += '<div class="usage-stat"><span class="val">$' + usage.total_cost_usd.toFixed(2) + '</span><span class="lbl">Est. Cost</span></div>';
+    html += '</div>';
+    if (!sessions.length) { html += '<div class="empty">No sessions found</div>'; }
+    for (const s of sessions) {
+      const age = timeAgo(s.last_activity);
+      const proj = s.project.split('/').pop() || s.project;
+      html += '<div class="session-row">';
+      html += '<div><strong>' + esc(proj) + '</strong> <span class="session-model">' + esc(s.model) + '</span><br><span class="session-tokens">' + s.turns + ' turns · ' + age + '</span></div>';
+      html += '<div class="session-tokens">' + fmtTokens(s.input_tokens) + ' in</div>';
+      html += '<div class="session-cache">' + s.cache_hit_rate + '% cache</div>';
+      html += '<div class="session-cost">$' + s.estimated_cost_usd.toFixed(2) + '</div>';
+      html += '</div>';
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    const el = $('claude-sessions');
+    if (el) el.innerHTML = '<div class="empty">Sessions unavailable</div>';
+  }
+}
+function fmtTokens(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(n);
+}
+function timeAgo(iso) {
+  if (!iso) return '';
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return Math.round(diff) + 's ago';
+  if (diff < 3600) return Math.round(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.round(diff / 3600) + 'h ago';
+  return Math.round(diff / 86400) + 'd ago';
+}
+`;
+}
+
 // --- Init scripts (extracted from html-scripts.ts to free up lines) ---
 
 export function getInitScripts(): string {

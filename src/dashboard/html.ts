@@ -2,7 +2,7 @@
 
 import { getDashboardScripts } from './html-scripts.js';
 import { getEditModeStyles, getEditToggleHtml } from './html-edit-mode.js';
-import { getHeatmapStyles, getQuickActionsHtml, getQuickActionsStyles } from './html-extras.js';
+import { getHeatmapStyles, getQuickActionsHtml, getQuickActionsStyles, getClaudeSessionsStyles } from './html-extras.js';
 
 function getThemeStyles(): string {
   return `
@@ -158,8 +158,8 @@ function getCardAndPanelStyles(): string {
 .panel-body::-webkit-scrollbar { width: 5px; }
 .panel-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
 .grid-overview {
-  display: grid; grid-template-columns: 1fr 1fr 1fr; grid-template-rows: 1fr 1fr;
-  gap: var(--gap); flex: 1; overflow: hidden;
+  display: grid; grid-template-columns: 1fr 1fr 1fr; grid-auto-rows: minmax(200px, 1fr);
+  gap: var(--gap); flex: 1; overflow: auto;
 }
 .grid-overview .span-bottom { grid-column: span 1; }
 `;
@@ -298,13 +298,9 @@ function getUtilStyles(): string {
 .search-box { padding: 4px 10px; font-size: 0.75rem; background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); outline: none; width: 120px; margin-left: auto; }
 .search-box:focus { border-color: var(--accent); }
 .search-box::placeholder { color: var(--text2); }
-.alerts-banner {
-  margin-bottom: var(--gap); padding: 10px 14px; flex-shrink: 0; font-size: 0.8rem; color: var(--text);
-  background: rgba(248,81,73,0.08); border: 1px solid rgba(248,81,73,0.25); border-radius: var(--radius);
-}
-.alerts-banner .alert-item { padding: 3px 0; display: flex; gap: 8px; align-items: center; }
-.alerts-banner .alert-time { color: var(--text2); font-size: 0.7rem; font-family: var(--mono); flex-shrink: 0; }
-.alerts-banner .alert-goal { color: var(--yellow); font-weight: 600; }
+#alerts-banner .alert-item { padding: 3px 0; display: flex; gap: 8px; align-items: center; font-size: 0.8rem; }
+#alerts-banner .alert-time { color: var(--text2); font-size: 0.7rem; font-family: var(--mono); flex-shrink: 0; }
+#alerts-banner .alert-goal { color: var(--yellow); font-weight: 600; }
 .snapshot-bar {
   margin-bottom: var(--gap); padding: 8px 14px; flex-shrink: 0; font-size: 0.8rem; color: var(--text2);
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
@@ -383,6 +379,7 @@ ${getUtilStyles()}
 ${getResponsiveStyles()}
 ${getEditModeStyles()}
 ${getHeatmapStyles()}
+${getClaudeSessionsStyles()}
 ${getQuickActionsStyles()}
 </style>
 </head>
@@ -419,7 +416,6 @@ ${getQuickActionsStyles()}
 
 <div class="tab-page active" id="page-overview">
   <div class="stats" id="stats"></div>
-  <div id="alerts-banner" class="alerts-banner" style="display:none"></div>
   <div id="snapshot-bar" class="snapshot-bar" style="display:none"></div>
   ${getQuickActionsHtml()}
   <div class="grid-overview">
@@ -439,6 +435,10 @@ ${getQuickActionsStyles()}
       <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Recent Conversations</div>
       <div class="panel-body" id="overview-convos"></div>
     </div>
+    <div class="panel" data-pid="panel-alerts">
+      <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Recent Alerts</div>
+      <div class="panel-body" id="alerts-banner"></div>
+    </div>
     <div class="panel" data-pid="panel-dailylog">
       <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Daily Log</div>
       <div class="panel-body" id="daily-log"></div>
@@ -446,6 +446,10 @@ ${getQuickActionsStyles()}
     <div class="panel" data-pid="panel-heatmap">
       <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Activity Heatmap</div>
       <div class="panel-body" id="heatmap"></div>
+    </div>
+    <div class="panel" data-pid="panel-claude-sessions">
+      <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Claude Code Sessions</div>
+      <div class="panel-body" id="claude-sessions"></div>
     </div>
   </div>
 </div>

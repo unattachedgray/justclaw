@@ -1,12 +1,13 @@
 /** Dashboard inline JavaScript — extracted to stay under 500-line file limit. */
 
 import { getEditModeScripts } from './html-edit-mode.js';
-import { getHeatmapScripts, getQuickActionsScripts, getInitScripts } from './html-extras.js';
+import { getHeatmapScripts, getQuickActionsScripts, getClaudeSessionsScripts, getInitScripts } from './html-extras.js';
 
 export function getDashboardScripts(): string {
   return `
 const $ = id => document.getElementById(id);
 const api = path => fetch('/api/' + path).then(r => r.json());
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 
 // --- Theme system ---
 function applyTheme(theme) {
@@ -100,6 +101,9 @@ ${getHeatmapScripts()}
 // --- Quick Actions ---
 ${getQuickActionsScripts()}
 
+// --- Claude Sessions ---
+${getClaudeSessionsScripts()}
+
 // --- SSE ---
 ${getSseScripts()}
 
@@ -148,15 +152,14 @@ function renderStats(d, m) {
 }
 
 function renderAlerts(escalations) {
-  const banner = $('alerts-banner');
-  if (!escalations || !escalations.length) { banner.style.display = 'none'; return; }
-  banner.style.display = 'block';
-  banner.innerHTML = '<strong style="font-size:0.75rem">Recent Alerts</strong>' +
-    escalations.slice(0, 3).map(e =>
-      '<div class="alert-item"><span class="alert-time">' + (e.created_at?.slice(5,16) || '') +
-      '</span><span class="alert-goal">' + esc(e.goal) +
-      '</span><span>' + esc((e.outcome || e.trigger_detail || '').slice(0, 80)) + '</span></div>'
-    ).join('');
+  const el = $('alerts-banner');
+  if (!el) return;
+  if (!escalations || !escalations.length) { el.innerHTML = '<div class="empty">No recent alerts</div>'; return; }
+  el.innerHTML = escalations.slice(0, 5).map(e =>
+    '<div class="alert-item"><span class="alert-time">' + (e.created_at?.slice(5,16) || '') +
+    '</span><span class="alert-goal">' + esc(e.goal) +
+    '</span><span>' + esc((e.outcome || e.trigger_detail || '').slice(0, 80)) + '</span></div>'
+  ).join('');
 }
 
 function renderServices(svcs) {
@@ -308,6 +311,7 @@ async function refreshOverview() {
     renderConvoList(convos, 'overview-convos');
     renderDailyLog(log);
     fetchHeatmap();
+    fetchClaudeSessions();
     $('status-dot').style.background = 'var(--green)';
   } catch {
     $('status-dot').style.background = 'var(--red)';

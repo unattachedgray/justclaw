@@ -7,6 +7,7 @@ import { addClient, removeClient, pushEvent } from './sse.js';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import { freemem, totalmem } from 'os';
+import { getAllSessions, getUsageStats } from './claude-sessions.js';
 
 const log = getLogger('dashboard');
 
@@ -154,17 +155,6 @@ export function createApiRoutes(db: DB): Hono {
     const trend = db.fetchall("SELECT date(started_at) as day, SUM(input_tokens) as input, SUM(output_tokens) as output FROM process_registry WHERE started_at >= date('now', '-7 days') AND (input_tokens > 0 OR output_tokens > 0) GROUP BY day ORDER BY day");
     const wIn = (weekTok?.input as number) || 0, wOut = (weekTok?.output as number) || 0;
     return c.json({ today: todayTok, week: weekTok, trend, equivalent_cost_usd: Math.round(((wIn / 1e6) * 15 + (wOut / 1e6) * 75) * 100) / 100 });
-  });
-
-  // --- Build action ---
-  api.post('/actions/build', (c) => {
-    try {
-      const out = execSync('npm run build 2>&1', { cwd: projectRoot(), timeout: 60_000 }).toString();
-      return c.json({ ok: true, output: out.slice(-500) });
-    } catch (e: unknown) {
-      const err = e as { stderr?: Buffer; stdout?: Buffer; message?: string };
-      return c.json({ error: (err.stderr?.toString() || err.stdout?.toString() || err.message || '').slice(-500) }, 500);
-    }
   });
 
   let chatSessionId: string | null = null; // Persists across messages for multi-turn conversation
@@ -456,6 +446,17 @@ export function createApiRoutes(db: DB): Hono {
     );
     pushEvent('refresh', JSON.stringify({ reason: 'webhook' }));
     return c.json({ ok: true, id: Number(result.lastInsertRowid) });
+  });
+
+  // --- Claude Code CLI sessions ---
+  api.get('/claude-sessions', (c) => {
+    const limit = parseInt(c.req.query('limit') || '20', 10);
+    return c.json(getAllSessions(Math.min(limit, 100)));
+  });
+
+  api.get('/claude-usage', (c) => {
+    const days = parseInt(c.req.query('days') || '7', 10);
+    return c.json(getUsageStats(Math.min(days, 90)));
   });
 
   // --- SSE ---
