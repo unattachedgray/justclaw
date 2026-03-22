@@ -40,7 +40,7 @@ justclaw is a **persistence and automation layer** for Claude Code CLI. It makes
 - [x] Web dashboard with Hono (overview, conversations, processes, logs tabs + SSE)
 - [x] PID-based process lifecycle with `/proc` ghost detection
 - [x] Schema migration system (v1→v2 auto-upgrade)
-- [x] 55 tests (db, memory, tasks, context, conversations)
+- [x] 68 tests (db, memory, tasks, context, conversations, cron)
 - [x] systemd service installer
 - [x] Linux-first: zero Windows-specific code
 
@@ -51,31 +51,63 @@ justclaw is a **persistence and automation layer** for Claude Code CLI. It makes
 - [x] macOS process management (`ps` fallback for `/proc` on darwin)
 - [x] Schema v6 migration (recurring task columns)
 - [x] 30 MCP tools (added process_ghost_status, system_recommendations)
+- [x] 5-field cron expression parser (`src/cron.ts`) for scheduled task recurrence
+- [x] Token usage tracking (schema v7, stream-json parsing, `/api/token-usage`)
+- [x] Activity heatmap (`/api/heatmap`, 7×24 CSS grid, SQL aggregation)
+- [x] Quick actions panel (Restart Dashboard, Run Build, Clear Ghosts, Check Health)
+- [x] Webhook endpoint (`POST /api/webhook`, token-authenticated, rate-limited)
+- [x] 6 agent definitions (task-worker, research-agent, conversation-reviewer, fast-researcher, diagnostician, executor)
+- [x] Security audit skill (`skills/security-audit/SKILL.md`)
+- [x] Dashboard heatmap panel + quick actions row
+- [x] Hats system — 5 specialized personas (architect, code-reviewer, debugger, feature-dev, security-reviewer) with checklists and output formats
+- [x] Eval framework — skill testing with `.evals/` test cases, pattern-based grading, regression detection
+- [x] Build skill — PRD-driven autonomous build loop with 5-dimension plan verification and quality gates (ralph+GSD hybrid)
+- [x] Newskill skill — 6-phase skill builder: requirements → research → security audit → design → build → register
+- [x] SessionStart hook lists all skills and auto-suggests `/newskill` when capabilities are missing
 
 ### Not yet implemented
-- [ ] WebSocket terminal in dashboard (was in Python version, skipped for v1)
-- [ ] PostToolUse hook for auto-logging Discord replies
 - [ ] npm publish as `justclaw`
 - [ ] Claude Code plugin marketplace submission
 
 ---
 
-## Roadmap (Post-Rewrite)
+## Roadmap (2026-03-22)
 
-### Near-term (quality of life)
-- ~~**Dashboard improvements**: Add theme selector (light, high-contrast). Add conversation panel with real-time feed.~~ **Done** (2026-03-21)
-- ~~**Memory expiry enforcement**: `memory_consolidate` already finds expired entries.~~ **Done** (2026-03-21) — runs every 12 heartbeat cycles via `enforceMemoryExpiry()`
-- **PostToolUse hook for Discord**: Auto-call `conversation_log()` after Discord reply tool fires. Requires knowing the exact tool matcher for the Discord plugin.
+Informed by OpenClaw feature comparison. All items leverage Claude Code native features or deterministic code — no custom LLM calls unless reasoning is genuinely needed.
 
-### Medium-term (new capabilities)
-- ~~**Recurring tasks**: Add `recurrence` field to tasks.~~ **Done** (2026-03-21) — `daily`, `weekly`, `monthly`, `cron:...` with auto-spawn on completion
-- **WebSocket terminal**: Port the Python dashboard's WS terminal tab. Useful for running diagnostics from the dashboard.
-- ~~**Memory consolidation scheduling**~~ **Done** — integrated into heartbeat cycle
+### Sprint: Dashboard & Observability
+- [x] **Dashboard edit mode**: Drag-and-drop reorder, hide/show, collapse panels (2026-03-22)
+- [x] **System metrics**: RAM/disk gauges, agent run stats, sparklines, service health dots (2026-03-22)
+- [x] **Scheduled tasks panel**: Separate view for recurring tasks with due times (2026-03-22)
+- [x] **Clickable detail views**: Expand work queue, scheduled tasks, memories, daily log items (2026-03-22)
+- [x] **Token usage tracking**: Schema v7 adds `input_tokens`/`output_tokens` to `process_registry`. Bot parses `stream-json` result events for usage. `/api/token-usage` endpoint returns today/week totals, 7-day trend, and equivalent API cost (included in Max plan). (2026-03-22)
+- [x] **Activity heatmap**: 7×24 CSS grid from SQL aggregation of `conversations` + `process_registry` (30 days). `/api/heatmap` endpoint. Dashboard panel with color-interpolated cells and legend. (2026-03-22)
+- [ ] **Memory browser**: Read-only file viewer tab for workspace markdown (CLAUDE.md, docs/*, agents/*). File tree + content display. No editing — that stays in Claude Code.
+- [x] **Quick actions panel**: Buttons for "Restart Dashboard", "Run Build", "Clear Ghost PIDs", "Check Health". Confirmation dialogs, toast notifications. `/api/actions/build` endpoint. (2026-03-22)
+
+### Sprint: Automation & Scheduling
+- [x] **Cron expression support**: `src/cron.ts` — pure 5-field cron parser (minute, hour, dom, month, dow). Supports `*`, ranges, steps, lists. `tasks.ts` uses `cronNext()` for `cron:` recurrence patterns. 13 tests. (2026-03-22)
+- [x] **Webhook endpoint**: `POST /api/webhook` (Bearer token via `JUSTCLAW_WEBHOOK_TOKEN` env). Logs to conversations table, pushes SSE refresh. 1s rate limit, 401/429/503 error codes. (2026-03-22)
+
+### Sprint: Native Claude Code Integration
+- [x] **Agent role definitions**: `.claude/agents/` with model-tiered roles (2026-03-22)
+  - `fast-researcher.md` — Haiku, read-only tools (Glob, Grep, Read, WebSearch), for quick lookups
+  - `diagnostician.md` — inherited model, system tools (Bash, Read, MCP), for health checks
+  - `executor.md` — inherited model, full tools, for task execution
+- [x] **Native hooks expansion**: `.claude/settings.json` — SessionStart, PreCompact, Stop, PreToolUse (protected files), PostToolUse (auto-format) (2026-03-22)
+- [x] **Security audit skill**: `skills/security-audit/SKILL.md` — checks secrets in git, file permissions, PM2 config, exposed ports, dashboard auth, MCP config, SQLite integrity, Node.js version. On-demand via `/security-audit` (2026-03-22)
+
+### Sprint: Skills & Personas (2026-03-21)
+- [x] **Hats system**: 5 persona definitions in `hats/` (architect, code-reviewer, debugger, feature-dev, security-reviewer). Each has mindset, checklist, output format, anti-patterns. `/hats <name>` command. Adapted from NanoClaw container hats, rebuilt for justclaw's context. (2026-03-21)
+- [x] **Eval framework**: `skills/eval/SKILL.md` — test cases in `.evals/{skill}/` with YAML frontmatter, pattern-based grading (substring, regex, file existence, file contents), regression detection. No LLM grading for speed/reproducibility. `/eval [skill]` command. (2026-03-21)
+- [x] **Build skill**: `skills/build/SKILL.md` — PRD-driven autonomous build. Combines ralph's fresh-context-per-story with GSD's 5-dimension plan verification (completeness, feasibility, independence, testability, order). Quality gates per story (build, test, size limits). `/build [prd]` command. (2026-03-21)
+- [x] **Newskill builder**: `.claude/commands/newskill.md` — 6-phase research-and-build: requirements gathering (interactive questionnaire or args), web research (5-10 implementations), security audit (5 critical + 3 warning checks), design (combine best patterns), build (SKILL.md + supporting files + test cases), register & document. (2026-03-21)
+- [x] **Auto-skill discovery**: SessionStart hook updated to list all available skills and suggest `/newskill` when the task needs capabilities not yet available. (2026-03-21)
 
 ### Future considerations
-- **Autonomous watcher**: A lightweight Node.js process that monitors Discord when Claude Code isn't running, buffers messages to SQLite. NOT a full agent — just a message queue.
-- **Multi-persona**: Config already supports it (`charlie.toml`), but code assumes one persona. Would need namespace isolation and separate MCP server instances.
-- **Plugin marketplace**: Generalize persona system into a reusable "persistent memory + task queue for Claude Code" plugin.
+- **Autonomous watcher**: Lightweight Node.js process that monitors Discord when Claude Code isn't running, buffers messages to SQLite.
+- **Multi-persona**: Namespace isolation + separate MCP server instances per persona.
+- **Plugin marketplace**: Generalize into reusable "persistent memory + task queue for Claude Code" plugin.
 
 ---
 
@@ -127,7 +159,8 @@ Most memory MCP servers do one thing (memory). justclaw bundles **memory + tasks
 JUSTCLAW/
   src/
     index.ts              — Entry point: PID management, signals, dashboard spawn, stdio
-    server.ts             — MCP server creation, registers all 28 tools
+    server.ts             — MCP server creation, registers all 30 tools
+    cron.ts               — 5-field cron expression parser (minute/hour/dom/month/dow)
     db.ts                 — SQLite schema v2, FTS5 triggers, migration system
     config.ts             — TOML config loader (smol-toml)
     logger.ts             — JSON-lines logger with 30-day rotation
@@ -141,6 +174,7 @@ JUSTCLAW/
       api.ts              — All API handlers (status, tasks, memories, conversations, logs, processes, SSE)
       sse.ts              — Server-Sent Events manager for live refresh
       html.ts             — Dashboard HTML/CSS/JS template
+      html-extras.ts      — Activity heatmap + quick actions panel
   config/
     charlie.toml          — Persona configuration
   skills/
@@ -148,14 +182,30 @@ JUSTCLAW/
     context-flush/        — Pre-compaction flush
     morning-briefing/     — Daily briefing scheduled task
     task-review/          — Task work session
+    security-audit/       — On-demand security audit (/security-audit)
+    hats/                 — Hat system skill (/hats)
+    eval/                 — Eval framework skill (/eval)
+    build/                — PRD-driven build skill (/build)
+  hats/
+    architect.md          — System design persona
+    code-reviewer.md      — Code review persona
+    debugger.md           — Bug investigation persona
+    feature-dev.md        — Feature development persona
+    security-reviewer.md  — Security audit persona
+  .evals/
+    hats/                 — Hat skill test cases
   scripts/
     install-service.sh    — systemd user service generator
   .claude/
-    settings.json         — Hooks: SessionStart, PreCompact, Stop
+    settings.json         — Hooks: SessionStart, PreCompact, Stop, PreToolUse, PostToolUse
+    commands/             — Slash commands (/hats, /eval, /build, /newskill, /improve, /audit, /retrospective, /review, /adr)
     agents/               — Custom subagent definitions
       task-worker.md      — Focused task execution
       research-agent.md   — Read-only research
       conversation-reviewer.md — Audit conversations, create tasks
+      fast-researcher.md  — Haiku, read-only quick lookups
+      diagnostician.md    — System health checks and investigation
+      executor.md         — Full-capability task execution
   .claude-plugin/
     plugin.json           — Claude Code plugin manifest
   .mcp.json               — MCP server config
@@ -170,6 +220,7 @@ JUSTCLAW/
     tasks.test.ts         — 12 tests: CRUD, dependencies, claiming, filters
     context.test.ts       — 6 tests: flush/restore, daily log
     conversations.test.ts — 7 tests: CRUD, filters, FTS5 search
+    cron.test.ts          — 13 tests: field parsing, cron scheduling
   package.json
   tsconfig.json
   vitest.config.ts

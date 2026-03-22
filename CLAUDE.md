@@ -214,6 +214,11 @@ Full details: @docs/DISCORD-BOT.md
 | `/audit <area>` | Deep code audit for bugs and architecture issues |
 | `/adr <title>` | Create Architecture Decision Record |
 | `/review` | Pre-commit quality checklist |
+| `/hats <name>` | Apply specialized persona (architect, code-reviewer, debugger, feature-dev, security-reviewer) |
+| `/eval [skill]` | Run skill evaluations against test cases, detect regressions |
+| `/build [prd]` | PRD-driven autonomous build loop with plan verification and quality gates |
+| `/newskill [desc]` | Research popular implementations, security audit, build custom skill |
+| `/security-audit` | On-demand security audit (secrets, permissions, ports, deps) |
 
 ## Compaction Instructions
 
