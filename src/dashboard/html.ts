@@ -107,6 +107,21 @@ function getTabStyles(): string {
 .content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
 .tab-page { display: none; flex: 1; overflow: hidden; padding: var(--gap); }
 .tab-page.active { display: flex; flex-direction: column; }
+.channel-tabs {
+  display: flex; gap: 0; padding: 0 var(--gap); flex-shrink: 0;
+  border-bottom: 1px solid var(--border); overflow-x: auto;
+}
+.channel-tab {
+  padding: 6px 14px; font-size: 0.75rem; font-weight: 500;
+  background: transparent; border: none; border-bottom: 2px solid transparent;
+  color: var(--text2); cursor: pointer; white-space: nowrap; transition: all 0.15s;
+}
+.channel-tab:hover { color: var(--text); background: var(--surface); }
+.channel-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.channel-tab .ch-count {
+  font-size: 0.65rem; background: var(--surface2); padding: 1px 5px;
+  border-radius: 8px; margin-left: 4px; color: var(--text2);
+}
 `;
 }
 
@@ -301,15 +316,10 @@ function getConversationPanelHtml(): string {
     <div class="panel-header">
       Conversations
       <div class="toolbar">
-        <select id="convo-channel-filter" class="search-box" style="width:auto" onchange="refreshConversations()">
-          <option value="">All channels</option>
-          <option value="discord">Discord</option>
-          <option value="whatsapp">WhatsApp</option>
-          <option value="dashboard">Dashboard</option>
-        </select>
         <button class="btn primary" onclick="refreshConversations()">Refresh</button>
       </div>
     </div>
+    <div class="channel-tabs" id="channel-tabs"></div>
     <div class="convo-layout">
       <div class="convo-messages" id="convo-messages"></div>
       <div class="convo-input-row">

@@ -181,9 +181,37 @@ $('mem-search').addEventListener('input', e => {
 
 function getConversationScripts(): string {
   return `
+let _activeChannel = '';
+
+async function refreshChannelTabs() {
+  const channels = await api('conversations/channels');
+  const bar = $('channel-tabs');
+  if (!bar) return;
+  const total = channels.reduce((s, c) => s + c.count, 0);
+  let html = '<button class="channel-tab' + (_activeChannel === '' ? ' active' : '') +
+    '" onclick="selectChannel(\\'\\')">' +
+    'All <span class="ch-count">' + total + '</span></button>';
+  for (const ch of channels) {
+    const active = _activeChannel === ch.channel ? ' active' : '';
+    html += '<button class="channel-tab' + active +
+      '" onclick="selectChannel(\\'' + esc(ch.channel) + '\\')">' +
+      esc(ch.channel) + ' <span class="ch-count">' + ch.count + '</span></button>';
+  }
+  bar.innerHTML = html;
+}
+
+function selectChannel(ch) {
+  _activeChannel = ch;
+  document.querySelectorAll('.channel-tab').forEach(t => t.classList.remove('active'));
+  event.target.closest('.channel-tab').classList.add('active');
+  refreshConversations();
+}
+
 async function refreshConversations() {
-  const channel = $('convo-channel-filter').value;
-  const qs = channel ? '?limit=100&channel=' + encodeURIComponent(channel) : '?limit=100';
+  await refreshChannelTabs();
+  const qs = _activeChannel
+    ? '?limit=100&channel=' + encodeURIComponent(_activeChannel)
+    : '?limit=100';
   const msgs = await api('conversations' + qs);
   renderConvoList(msgs, 'convo-messages');
 }

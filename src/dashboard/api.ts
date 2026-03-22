@@ -90,6 +90,13 @@ export function createApiRoutes(db: DB): Hono {
     return c.json(rows);
   });
 
+  api.get('/conversations/channels', (c) => {
+    const rows = db.fetchall(
+      'SELECT channel, COUNT(*) as count FROM conversations GROUP BY channel ORDER BY count DESC',
+    );
+    return c.json(rows);
+  });
+
   api.get('/conversations', (c) => {
     const limit = parseInt(c.req.query('limit') || '40', 10);
     const channel = c.req.query('channel') || '';
