@@ -34,18 +34,28 @@ Suspicious processes are tracked and scored (0-100) but only reported to the use
 
 ## What makes justclaw different
 
-| Feature | justclaw | Typical memory MCP | Agent frameworks |
-|---------|-----|--------------------|-----------------|
-| Memory | FTS5 search, namespaces, access tracking, expiry | Basic key-value | Custom vector DB |
-| Tasks | Dependencies, agent claiming, priority queue | None | Custom task graphs |
-| Context preservation | Auto-flush before compaction via hooks | None | Manual |
-| Health monitoring | 9 deterministic checks, $0/cycle | None | LLM-based ($$$) |
-| Self-healing | Adaptive thresholds, flap detection, rollback | None | Retry loops |
-| Discord interface | Streaming progress, circuit breaker, multi-turn | None | Separate bot |
-| Process management | SQLite registry, safety scoring, PID verification | None | Docker/k8s |
-| Lines of code | ~4,000 TypeScript | ~500 | ~50,000+ |
+[OpenClaw](https://github.com/openclaw/openclaw) is the most popular open-source AI assistant framework — 20+ messaging platforms, vector + BM25 + FTS5 memory, 4-tier self-healing, cron automation, 100+ agent skills, a full dashboard. It's also ~500K lines of code with 70+ dependencies.
 
-**justclaw is one SQLite database, one MCP server, one tool namespace.** Memory, tasks, context, conversations, process state, and health metrics all live in the same DB. Claude can query across all of them in a single session.
+**justclaw replicates the same core capabilities in ~4,000 lines by leveraging what Claude Code CLI already provides natively**, instead of rebuilding everything from scratch.
+
+| Capability | OpenClaw (custom code) | justclaw (Claude Code native + thin layer) |
+|---|---|---|
+| **Memory** | Markdown files + vector embeddings + BM25 + FTS5, multiple embedding providers | SQLite FTS5, namespaces, access tracking, expiry, consolidation — 6 MCP tools. No embedding server needed. |
+| **Task queue** | Basic task tracking | Dependencies, agent claiming, priority queue, recurring tasks with cron expressions — 6 MCP tools |
+| **Scheduling** | Built-in cron daemon + heartbeat | Claude Code's native scheduled tasks + justclaw's 5-field cron parser for recurring tasks |
+| **Messaging** | 20+ platform adapters (custom code per platform) | Discord (native bot) + Claude Code's channel plugins (Discord, Slack, Telegram — zero custom adapter code) |
+| **Health monitoring** | 4-tier: preflight → keepalive → watchdog → AI recovery in tmux | 9 deterministic checks ($0/cycle) + PM2 auto-restart + LLM escalation only for persistent issues |
+| **Self-healing** | Watchdog with exponential backoff, crash counters decay after 6h | Conservative 3-layer kill policy, PID reuse protection, safety scoring (0-100), stale-counter detection |
+| **Budget tracking** | Per-agent cost caps, circuit breakers | Token tracking via stream-json parsing + Claude Code session JSONL parsing (cache hits, per-model costs) |
+| **Dashboard** | Full monitoring UI | Hono dashboard with SSE, activity heatmap, Claude Code session stats, quick actions, themes |
+| **Agent skills** | 100+ preconfigured skills | Claude Code's native tool use + `/hats` personas + `/newskill` builder + `/build` orchestrator |
+| **Context management** | Manual | Auto-flush before compaction via Claude Code hooks (SessionStart, PreCompact, Stop) |
+| **Orchestration** | Custom agent runtime, gateway WebSocket, plugin architecture | Claude Code CLI is the runtime. MCP over stdio. No middleware. |
+| **Codebase** | ~500K LOC, 70+ deps, 16K commits | ~4K LOC, <15 deps |
+
+The key insight: OpenClaw rebuilds agent orchestration, tool routing, channel adapters, and memory indexing from scratch. justclaw treats all of that as solved by Claude Code CLI and only builds what Claude Code doesn't have — **persistence across sessions, a task queue, lifecycle hooks, and deterministic health monitoring**.
+
+**One SQLite database, one MCP server, one tool namespace.** Memory, tasks, context, conversations, process state, and health metrics all live in the same DB. Claude can query across all of them in a single session.
 
 ## What it provides
 
@@ -53,8 +63,10 @@ Suspicious processes are tracked and scored (0-100) but only reported to the use
 - **Discord bot** — stream Claude's responses to Discord with real-time progress display, per-channel queuing, and circuit breaker protection
 - **Heartbeat monitor** — 9 pure TypeScript health checks every 5 minutes: process audit, stale process scan, PM2 health, unanswered messages, system status, stuck tasks, doc staleness, event loop, memory usage
 - **Goal-driven escalation** — when deterministic checks fail for 3+ cycles, Claude is invoked to diagnose and fix, with recommendations stored for future reference
+- **Web dashboard** — live status page with activity heatmap, Claude Code session tracking (tokens, cache hits, costs), quick actions, drag-and-drop layout, theme support
+- **10 slash commands** — `/hats` (5 personas), `/build` (PRD-driven build loop), `/newskill` (research + security audit + build), `/eval` (skill testing), `/security-audit`, `/improve`, `/audit`, `/retrospective`, `/review`, `/adr`
+- **6 custom agents** — task-worker, research-agent, conversation-reviewer, fast-researcher (Haiku), diagnostician, executor — scoped tools per role
 - **Safe deploy** — `npm run deploy` builds, tests, git-tags, restarts, monitors for 60s, and auto-rolls back on crash loop
-- **Web dashboard** — read-only status page at `localhost:8787`
 
 ## Quick Start
 
@@ -108,7 +120,7 @@ pm2 start ecosystem.config.cjs
 ```
 Claude Code CLI ──> justclaw MCP Server (stdio, 30 tools)
                            │
-                SQLite (WAL, FTS5, schema v5)
+                SQLite (WAL, FTS5, schema v7)
                     │          │              │
               Dashboard    Discord Bot    Heartbeat
               Hono :8787   discord.js     9 checks, <1s, $0
@@ -140,7 +152,7 @@ Customize the assistant's name, personality, and defaults.
 ```bash
 npm run build            # Compile TypeScript
 npm run dev              # Development with hot reload
-npm test                 # Run test suite (55 tests)
+npm test                 # Run test suite (68 tests)
 npm run deploy           # Safe deploy with auto-rollback
 npm run setup            # Interactive first-time setup
 pm2 list                 # Check service status
