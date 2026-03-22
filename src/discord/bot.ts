@@ -684,7 +684,8 @@ async function processQueue(channelId: string, db: DB): Promise<void> {
     );
 
     // Replace progress message with final response.
-    const chunks = splitMessage(result.reply);
+    const replyText = result.reply.trim() || '*(completed with no text output)*';
+    const chunks = splitMessage(replyText);
     if (progressMsg) {
       try {
         await progressMsg.edit(chunks[0]);
