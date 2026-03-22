@@ -55,11 +55,12 @@ pm2 save                           # Persist for reboot
 | `src/discord/heartbeat.ts` | Heartbeat orchestrator: deterministic checks, dedup, presence flash, escalation |
 | `src/discord/heartbeat-checks.ts` | 9 pure TypeScript health checks |
 | `src/discord/escalation.ts` | Goal-driven LLM escalation for persistent issues |
+| `src/discord/anticipation.ts` | Predicts what user needs next: signal gathering + LLM synthesis |
 | `src/discord/scheduled-tasks.ts` | Executes due recurring tasks via claude -p from heartbeat tick |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
 | `.mcp.json` | MCP server config — **must include `JUSTCLAW_NO_DASHBOARD: "1"`** |
 
-## MCP Tools (36)
+## MCP Tools (37)
 
 Memory (6): save, search, recall, forget, list, consolidate — FTS5, namespaces, access tracking
 Tasks (6): create, update, list, next, claim, complete — dependencies, agent claiming, auto-execute
@@ -67,6 +68,7 @@ Context (5): flush, restore, today, daily_log_add/get — compaction lifecycle
 Conversations (4): log, history, search, summary — FTS5 across channels
 Goals (3): set, list, archive — persistent objectives that drive daily task generation
 Learnings (3): add, search, stats — structured self-improvement from errors and corrections
+Anticipation (1): anticipate_next — predict what user needs next from signals
 State/Status (3): get, set, status overview
 Process (4): check, restart_self, restart_dashboard, ghost_status
 System (2): recommendations, escalation_history

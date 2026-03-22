@@ -1,4 +1,4 @@
-# MCP Tools Reference (36 total)
+# MCP Tools Reference (37 total)
 
 ## Memory (6)
 | Tool | Description |
@@ -68,6 +68,15 @@ Goals are stored in the `memories` table with `type='goal'`, `namespace='goals'`
 | `learning_stats` | Get counts by category and area, plus total and recent (7d) counts |
 
 Learnings are stored in the `learnings` table (schema v8). Categories: `error` (something broke), `correction` (user corrected behavior), `discovery` (found a better approach), `skill` (acquired new capability).
+
+## Anticipation (1)
+| Tool | Description |
+|------|-------------|
+| `anticipate_next` | Gather signals (recent work, pending tasks, goals, time patterns, learnings, conversations, velocity) and predict what the user likely needs next. Returns deterministic signals for LLM synthesis. |
+
+Signals gathered: `recent_work` (completed tasks in 48h), `pending_work` (queued tasks), `goals` (active goals), `time_context` (day/hour + historical patterns), `recent_learnings` (latest lessons), `recent_conversations` (last 4h), `velocity` (completion rate vs average).
+
+When run from the heartbeat (every 12th cycle, ~1h), signals are fed to `claude -p` which synthesizes a prediction with confidence level. High-confidence predictions with `create_task` action auto-create tasks tagged `anticipated`.
 
 ## System Health (2)
 | Tool | Description |

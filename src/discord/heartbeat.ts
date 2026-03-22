@@ -16,6 +16,7 @@ import { runAllChecks, type HeartbeatReport } from './heartbeat-checks.js';
 import { markIssueSeen, markIssueResolved, shouldEscalate, escalate, formatRecommendations } from './escalation.js';
 import { checkAndRunScheduledTasks } from './scheduled-tasks.js';
 import { runAwarenessChecks, isWithinActiveHours, getMessageBudget, spendMessageBudget, formatAwarenessMessage } from './awareness.js';
+import { anticipate, formatAnticipation } from './anticipation.js';
 import { loadConfig } from '../config.js';
 
 const log = getLogger('heartbeat');
@@ -309,6 +310,40 @@ export function startHeartbeat(opts: HeartbeatOpts): { stop: () => void; runNow:
           }
         } catch (err) {
           log.error('Awareness check failed', { error: String(err) });
+        }
+      }
+
+      // Anticipation: every 12th cycle (~1h). Predict what user needs next.
+      // Uses LLM, so runs less frequently and shares the message budget.
+      if (state.totalChecks % 12 === 0 && state.totalChecks > 0) {
+        try {
+          const config = loadConfig();
+          const inActiveHours = isWithinActiveHours(
+            config.active_hours_start, config.active_hours_end, config.timezone,
+          );
+
+          if (inActiveHours) {
+            const budget = getMessageBudget(opts.db, config.max_proactive_messages_per_day);
+            if (budget.remaining > 0) {
+              const result = await anticipate(opts.db);
+              if (result && result.action !== 'none') {
+                // If high confidence + create_task action, actually create the task.
+                if (result.action === 'create_task' && result.confidence === 'high' && result.taskTitle) {
+                  opts.db.execute(
+                    `INSERT INTO tasks (title, description, priority, tags, status, created_at, updated_at)
+                     VALUES (?, ?, ?, 'auto-generated,anticipated', 'pending', ?, ?)`,
+                    [result.taskTitle, result.taskDescription || '', result.taskPriority || 3, opts.db.now(), opts.db.now()],
+                  );
+                }
+                const msg = formatAnticipation(result);
+                await postToDiscord(msg);
+                spendMessageBudget(opts.db);
+                log.info('Anticipation message sent', { confidence: result.confidence, action: result.action });
+              }
+            }
+          }
+        } catch (err) {
+          log.error('Anticipation check failed', { error: String(err) });
         }
       }
 

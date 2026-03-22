@@ -8,6 +8,7 @@ import { registerContextTools } from './context.js';
 import { registerConversationTools } from './conversations.js';
 import { registerGoalTools } from './goals.js';
 import { registerLearningTools } from './learnings.js';
+import { gatherSignals, type AnticipationSignal } from './discord/anticipation.js';
 import { addToWhitelist, removeFromWhitelist, getWhitelist, silenceAlert, unsilenceAlert, getActiveSilences } from './alert-manager.js';
 import { auditProcesses, getSuspiciousProcesses, getSuggestions } from './process-registry.js';
 import { spawnDashboard, readPidFile } from './processes.js';
@@ -191,6 +192,25 @@ Review these and implement the suggestions to make the system handle more cases 
       params.push(limit);
       const rows = _db!.fetchall(sql, params);
       return { content: [{ type: 'text', text: JSON.stringify(rows, null, 2) }] };
+    },
+  );
+
+  // Anticipation: predict what user needs next based on signals.
+  server.tool(
+    'anticipate_next',
+    `Gather signals about recent work, goals, time patterns, learnings, and conversations,
+then predict what the user likely wants or needs to do next.
+Returns deterministic signals — the Discord bot uses these with an LLM to generate suggestions.
+**When to use:** At session start, when the user seems unsure what to do, or to proactively suggest next steps.`,
+    {},
+    async () => {
+      const signals: AnticipationSignal[] = gatherSignals(_db!);
+      const formatted = signals.map((s) => ({
+        category: s.category,
+        detail: s.detail,
+        data: s.data,
+      }));
+      return { content: [{ type: 'text', text: JSON.stringify({ signals: formatted, count: signals.length }, null, 2) }] };
     },
   );
 
