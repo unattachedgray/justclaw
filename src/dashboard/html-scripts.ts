@@ -68,19 +68,12 @@ function toggleExpand(el) {
   const item = el.closest('.expandable');
   const detail = item.nextElementSibling;
   if (!detail || !detail.classList.contains('expand-detail')) return;
-  const isOpen = detail.classList.toggle('open');
-  item.classList.toggle('open', isOpen);
+  item.classList.toggle('open', detail.classList.toggle('open'));
 }
-
-function fmtTs(ts) {
-  if (!ts) return '-';
-  return ts.replace('T', ' ').slice(0, 16);
-}
-
+function fmtTs(ts) { return ts ? ts.replace('T', ' ').slice(0, 16) : '-'; }
 function detailRow(label, val) {
   if (!val && val !== 0) return '';
-  return '<div class="detail-row"><span class="detail-label">' + label +
-    '</span><span class="detail-val">' + esc(String(val)) + '</span></div>';
+  return '<div class="detail-row"><span class="detail-label">' + label + '</span><span class="detail-val">' + esc(String(val)) + '</span></div>';
 }
 
 // --- Overview renderers ---
@@ -98,34 +91,80 @@ ${getLogScripts()}
 // --- SSE ---
 ${getSseScripts()}
 
-// --- Init ---
+// --- Init & refresh countdown ---
+let _refreshIn = 10;
+function tickCountdown() {
+  _refreshIn--;
+  const el = $('refresh-countdown');
+  if (el) el.textContent = _refreshIn + 's';
+  if (_refreshIn <= 0) { _refreshIn = 10; refreshOverview(); }
+}
 fetchUptime();
 updateClock();
 setInterval(updateClock, 1000);
 setInterval(fetchUptime, 60000);
 refreshOverview();
-setInterval(refreshOverview, 10000);
+setInterval(tickCountdown, 1000);
 `;
 }
 
 function getOverviewRenderers(): string {
   return `
-function renderStats(d) {
+function sparkline(data, w, h, color) {
+  if (!data || data.length < 2) return '';
+  const max = Math.max(...data, 1);
+  const step = w / (data.length - 1);
+  const pts = data.map((v, i) => (i * step).toFixed(1) + ',' + (h - (v / max) * (h - 2)).toFixed(1));
+  return '<span class="sparkline"><svg width="' + w + '" height="' + h + '">' +
+    '<polyline points="' + pts.join(' ') + '" fill="none" stroke="' + color + '" stroke-width="1.5" stroke-linejoin="round"/></svg></span>';
+}
+
+function gauge(pct, color) {
+  return '<div class="gauge-bar"><div class="gauge-fill" style="width:' + pct + '%;background:' + color + '"></div></div>';
+}
+
+function renderStats(d, m) {
   const g = d._ghost || {};
+  const msgData = (m?.trends?.messages || []).map(r => r.count);
+  const a = m?.agents || {};
+  const sys = m?.system || {};
+  const ramColor = sys.mem_used_pct > 85 ? 'var(--red)' : sys.mem_used_pct > 70 ? 'var(--yellow)' : 'var(--green)';
+  const diskColor = sys.disk_used_pct > 90 ? 'var(--red)' : sys.disk_used_pct > 75 ? 'var(--yellow)' : 'var(--green)';
   $('stats').innerHTML = [
-    ['Work Queue', d.pending_tasks?.length || 0, 'accent'],
-    ['Memories', d.memory_count, 'purple'],
-    ['Messages 24h', d.messages_24h, 'green'],
-    ['Log Today', d.today_log_entries, 'yellow'],
-    ['Ghost Checks', g.total_checks || 0, g.forced_remaining > 0 ? 'red' : 'green'],
-  ].map(([l,v,c]) => '<div class="stat-card"><div class="label">' + l +
-    '</div><div class="value ' + c + '">' + v + '</div></div>').join('');
+    '<div class="stat-card"><div class="label">Messages 24h</div><div class="value green">' + d.messages_24h + sparkline(msgData, 50, 18, 'var(--green)') + '</div></div>',
+    '<div class="stat-card"><div class="label">Work Queue</div><div class="value accent">' + (d.pending_tasks?.length || 0) + '</div></div>',
+    '<div class="stat-card"><div class="label">Agent Runs</div><div class="value purple">' + a.runs_today + '</div><div class="sub">' + (a.active > 0 ? a.active + ' active, ' : '') + 'avg ' + a.avg_duration_s + 's</div></div>',
+    '<div class="stat-card"><div class="label">Memories</div><div class="value purple">' + d.memory_count + '</div></div>',
+    '<div class="stat-card"><div class="label">RAM</div><div class="value" style="color:' + ramColor + '">' + sys.mem_used_pct + '%</div>' + gauge(sys.mem_used_pct, ramColor) + '</div>',
+    '<div class="stat-card"><div class="label">Disk</div><div class="value" style="color:' + diskColor + '">' + sys.disk_used_pct + '%</div>' + gauge(sys.disk_used_pct, diskColor) + '</div>',
+  ].join('');
   const bar = $('snapshot-bar');
   if (d.last_snapshot) {
     bar.style.display = 'block';
     bar.innerHTML = '<strong>Last context:</strong> ' + esc(d.last_snapshot.summary?.slice(0,200)) +
       ' <span style="margin-left:8px;color:var(--text2)">' + d.last_snapshot.created_at + '</span>';
   } else { bar.style.display = 'none'; }
+}
+
+function renderAlerts(escalations) {
+  const banner = $('alerts-banner');
+  if (!escalations || !escalations.length) { banner.style.display = 'none'; return; }
+  banner.style.display = 'block';
+  banner.innerHTML = '<strong style="font-size:0.75rem">Recent Alerts</strong>' +
+    escalations.slice(0, 3).map(e =>
+      '<div class="alert-item"><span class="alert-time">' + (e.created_at?.slice(5,16) || '') +
+      '</span><span class="alert-goal">' + esc(e.goal) +
+      '</span><span>' + esc((e.outcome || e.trigger_detail || '').slice(0, 80)) + '</span></div>'
+    ).join('');
+}
+
+function renderServices(svcs) {
+  if (!svcs) return;
+  for (const [key, svc] of Object.entries(svcs)) {
+    const el = $('svc-' + key);
+    if (!el) continue;
+    el.className = 'svc-dot ' + svc.label;
+  }
 }
 
 function renderTasks(tasks) {
@@ -254,12 +293,14 @@ function renderDailyLog(entries) {
 
 async function refreshOverview() {
   try {
-    const [status, tasks, scheduled, mems, convos, log, ghost] = await Promise.all([
+    const [status, tasks, scheduled, mems, convos, log, ghost, metrics] = await Promise.all([
       api('status'), api('tasks'), api('scheduled-tasks'), api('memories'),
-      api('conversations?limit=20'), api('daily-log'), api('ghost-state'),
+      api('conversations?limit=20'), api('daily-log'), api('ghost-state'), api('metrics'),
     ]);
     status._ghost = ghost;
-    renderStats(status);
+    renderStats(status, metrics);
+    renderAlerts(metrics.escalations);
+    renderServices(metrics.services);
     renderTasks(tasks);
     renderScheduledTasks(scheduled);
     renderMemories(mems);

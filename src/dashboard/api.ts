@@ -1,11 +1,12 @@
 import { Hono } from 'hono';
 import { stream } from 'hono/streaming';
-import { spawn as spawnChild } from 'child_process';
+import { spawn as spawnChild, execSync } from 'child_process';
 import type { DB } from '../db.js';
 import { getLogger } from '../logger.js';
 import { addClient, removeClient, pushEvent } from './sse.js';
 import { existsSync, readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
+import { freemem, totalmem } from 'os';
 
 const log = getLogger('dashboard');
 
@@ -340,6 +341,68 @@ export function createApiRoutes(db: DB): Hono {
     }
     entries.reverse();
     return c.json(entries);
+  });
+
+  // --- Metrics (aggregated for dashboard) ---
+
+  api.get('/metrics', (c) => {
+    // System resources
+    const memFree = freemem();
+    const memTotal = totalmem();
+    const memUsedPct = Math.round((1 - memFree / memTotal) * 100);
+    let diskUsedPct = 0;
+    try {
+      const df = execSync('df -h /home --output=pcent 2>/dev/null | tail -1', { timeout: 3000 }).toString().trim();
+      diskUsedPct = parseInt(df.replace('%', ''), 10) || 0;
+    } catch { /* ignore */ }
+
+    // Agent runs today (claude-p processes)
+    const todayStart = db.today() + ' 00:00:00';
+    const agentRuns = db.fetchone(
+      "SELECT COUNT(*) as total, AVG(CAST((julianday(retired_at) - julianday(started_at)) * 86400 AS INTEGER)) as avg_duration_s FROM process_registry WHERE role = 'claude-p' AND started_at >= ? AND retired_at IS NOT NULL",
+      [todayStart],
+    );
+    const activeAgents = db.fetchone(
+      "SELECT COUNT(*) as n FROM process_registry WHERE role = 'claude-p' AND status = 'active'",
+    );
+
+    // Message trend (last 7 days)
+    const msgTrend = db.fetchall(
+      "SELECT date(created_at) as day, COUNT(*) as count FROM conversations WHERE created_at >= date('now', '-7 days') GROUP BY day ORDER BY day ASC",
+    );
+
+    // Task completion trend (last 7 days)
+    const taskTrend = db.fetchall(
+      "SELECT date(completed_at) as day, COUNT(*) as count FROM tasks WHERE completed_at IS NOT NULL AND completed_at >= date('now', '-7 days') GROUP BY day ORDER BY day ASC",
+    );
+
+    // Recent escalations (alerts)
+    const recentEscalations = db.fetchall(
+      "SELECT goal, trigger_detail, outcome, created_at FROM escalation_log ORDER BY created_at DESC LIMIT 5",
+    );
+
+    // Service health
+    const mcp = pidStatus('justclaw');
+    const dashboard = pidStatus('dashboard');
+    const discordBot = db.fetchone(
+      "SELECT pid, status FROM process_registry WHERE role = 'discord-bot' AND status = 'active' ORDER BY started_at DESC LIMIT 1",
+    );
+    let botAlive = false;
+    if (discordBot?.pid) {
+      try { process.kill(discordBot.pid as number, 0); botAlive = true; } catch { /* dead */ }
+    }
+
+    return c.json({
+      system: { mem_used_pct: memUsedPct, mem_total_mb: Math.round(memTotal / 1048576), disk_used_pct: diskUsedPct },
+      agents: { runs_today: (agentRuns?.total as number) || 0, avg_duration_s: Math.round((agentRuns?.avg_duration_s as number) || 0), active: (activeAgents?.n as number) || 0 },
+      trends: { messages: msgTrend, tasks_completed: taskTrend },
+      escalations: recentEscalations,
+      services: {
+        mcp: { alive: mcp.alive, pid: mcp.pid, label: mcp.alive ? 'online' : 'standby' },
+        dashboard: { alive: dashboard.alive, pid: dashboard.pid, label: 'online' },
+        discord: { alive: botAlive, pid: (discordBot?.pid as number) || null, label: botAlive ? 'online' : 'offline' },
+      },
+    });
   });
 
   // --- SSE ---

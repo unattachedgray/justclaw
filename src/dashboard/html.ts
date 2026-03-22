@@ -36,14 +36,8 @@ function getThemeStyles(): string {
 [data-theme="cresto"] header h1 { font-size: 1.6rem; font-family: 'Playfair Display', Georgia, serif; }
 [data-theme="cresto"] .tabs .tab { font-size: 0.95rem; padding: 10px 18px; }
 [data-theme="cresto"] .panel-header { font-size: 1.05rem; }
-[data-theme="cresto"] .stat-val { font-size: 2rem; }
 [data-theme="cresto"] .panel-body { font-size: 0.95rem; }
-[data-theme="cresto"] .card { border: 1px solid rgba(212,175,55,0.15); }
-[data-theme="cresto"] .uptime-badge { font-size: 0.75rem; }
-[data-theme="cresto"] header {
-  background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%);
-  border-bottom: 1px solid rgba(212,175,55,0.3);
-}
+[data-theme="cresto"] header { background: linear-gradient(135deg, #1e3a5f 0%, #0f172a 100%); border-bottom: 1px solid rgba(212,175,55,0.3); }
 `;
 }
 
@@ -67,6 +61,14 @@ header h1 { font-size: 1.3rem; font-weight: 600; white-space: nowrap; }
   background: var(--green); animation: pulse 2s infinite; flex-shrink: 0;
 }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+.service-indicators { display: flex; gap: 6px; margin-left: 12px; }
+.svc-dot {
+  font-size: 0.6rem; padding: 2px 8px; border-radius: 10px; font-weight: 600;
+  background: var(--surface2); color: var(--text2); border: 1px solid var(--border);
+}
+.svc-dot.online { background: rgba(63,185,80,0.15); color: var(--green); border-color: rgba(63,185,80,0.3); }
+.svc-dot.standby { background: rgba(210,153,34,0.15); color: var(--yellow); border-color: rgba(210,153,34,0.3); }
+.svc-dot.offline { background: rgba(248,81,73,0.15); color: var(--red); border-color: rgba(248,81,73,0.3); }
 .header-right {
   margin-left: auto; display: flex; align-items: center; gap: 12px;
   font-size: 0.75rem; color: var(--text2);
@@ -130,11 +132,7 @@ function getCardAndPanelStyles(): string {
 .stats {
   display: flex; gap: var(--gap); flex-shrink: 0; margin-bottom: var(--gap); overflow-x: auto;
 }
-.stat-card {
-  flex: 1; min-width: 100px;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); padding: 10px 14px;
-}
+.stat-card { flex: 1; min-width: 100px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; }
 .stat-card .label {
   font-size: 0.65rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.05em;
 }
@@ -173,11 +171,7 @@ function getMessageStyles(): string {
   display: flex; gap: 8px; padding: 10px 14px;
   border-top: 1px solid var(--border); flex-shrink: 0;
 }
-.convo-input {
-  flex: 1; padding: 8px 12px; font-size: 0.85rem;
-  background: var(--input-bg); border: 1px solid var(--border);
-  border-radius: 8px; color: var(--text); outline: none; font-family: inherit;
-}
+.convo-input { flex: 1; padding: 8px 12px; font-size: 0.85rem; background: var(--input-bg); border: 1px solid var(--border); border-radius: 8px; color: var(--text); outline: none; font-family: inherit; }
 .convo-input:focus { border-color: var(--accent); }
 .convo-input::placeholder { color: var(--text2); }
 .msg { padding: 6px 0; font-size: 0.8rem; }
@@ -185,10 +179,7 @@ function getMessageStyles(): string {
 .msg .sender.charlie { color: var(--green); }
 .msg .time { color: var(--text2); font-size: 0.7rem; margin-left: 6px; }
 .msg .text { color: var(--text); margin-top: 2px; word-wrap: break-word; }
-.msg-charlie {
-  background: var(--surface2); border-radius: 8px;
-  margin: 4px 0 4px 24px; padding: 8px 10px;
-}
+.msg-charlie { background: var(--surface2); border-radius: 8px; margin: 4px 0 4px 24px; padding: 8px 10px; }
 .msg-user { margin: 4px 24px 4px 0; padding: 6px 0; }
 `;
 }
@@ -229,18 +220,16 @@ function getTaskStyles(): string {
 .expandable { cursor: pointer; transition: background 0.1s; border-radius: 6px; margin: 0 -6px; padding: 8px 6px; }
 .expandable:hover { background: var(--hover); }
 .expand-detail {
-  display: none; margin: 0 -6px; padding: 6px 10px 10px;
-  font-size: 0.75rem; color: var(--text2); line-height: 1.6;
-  border-bottom: 1px solid var(--border); background: var(--surface2); border-radius: 0 0 6px 6px;
+  display: none; margin: 0 -6px; padding: 6px 10px 10px; font-size: 0.75rem;
+  color: var(--text2); line-height: 1.6; border-bottom: 1px solid var(--border);
+  background: var(--surface2); border-radius: 0 0 6px 6px;
 }
 .expand-detail.open { display: block; }
 .expand-detail .detail-row { display: flex; gap: 6px; padding: 2px 0; }
 .expand-detail .detail-label { color: var(--text2); min-width: 70px; flex-shrink: 0; font-weight: 600; font-size: 0.7rem; text-transform: uppercase; }
 .expand-detail .detail-val { color: var(--text); word-break: break-word; }
 .expand-detail .detail-desc { color: var(--text); padding: 4px 0; white-space: pre-wrap; }
-.expand-chevron {
-  font-size: 0.6rem; color: var(--text2); transition: transform 0.15s; display: inline-block; margin-right: 4px;
-}
+.expand-chevron { font-size: 0.6rem; color: var(--text2); transition: transform 0.15s; display: inline-block; margin-right: 4px; }
 .expandable.open .expand-chevron { transform: rotate(90deg); }
 
 .task-item {
@@ -304,20 +293,26 @@ function getUtilStyles(): string {
   background: var(--surface2); color: var(--text2); margin-right: 4px;
 }
 .empty { color: var(--text2); font-size: 0.8rem; font-style: italic; padding: 12px 0; }
-.search-box {
-  padding: 4px 10px; font-size: 0.75rem; background: var(--input-bg);
-  border: 1px solid var(--border); border-radius: 6px; color: var(--text);
-  outline: none; width: 120px; margin-left: auto;
-}
+.search-box { padding: 4px 10px; font-size: 0.75rem; background: var(--input-bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); outline: none; width: 120px; margin-left: auto; }
 .search-box:focus { border-color: var(--accent); }
 .search-box::placeholder { color: var(--text2); }
+.alerts-banner {
+  margin-bottom: var(--gap); padding: 10px 14px; flex-shrink: 0; font-size: 0.8rem; color: var(--text);
+  background: rgba(248,81,73,0.08); border: 1px solid rgba(248,81,73,0.25); border-radius: var(--radius);
+}
+.alerts-banner .alert-item { padding: 3px 0; display: flex; gap: 8px; align-items: center; }
+.alerts-banner .alert-time { color: var(--text2); font-size: 0.7rem; font-family: var(--mono); flex-shrink: 0; }
+.alerts-banner .alert-goal { color: var(--yellow); font-weight: 600; }
 .snapshot-bar {
-  margin-bottom: var(--gap); padding: 8px 14px; flex-shrink: 0;
-  background: var(--surface); border: 1px solid var(--border);
-  border-radius: var(--radius); font-size: 0.8rem; color: var(--text2);
+  margin-bottom: var(--gap); padding: 8px 14px; flex-shrink: 0; font-size: 0.8rem; color: var(--text2);
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .snapshot-bar strong { color: var(--text); }
+.sparkline { display: inline-block; vertical-align: middle; margin-left: 6px; }
+.gauge-bar { height: 4px; border-radius: 2px; background: var(--surface2); margin-top: 6px; overflow: hidden; }
+.gauge-fill { height: 100%; border-radius: 2px; transition: width 0.5s; }
+.stat-card .sub { font-size: 0.6rem; color: var(--text2); margin-top: 2px; }
 `;
 }
 
@@ -391,6 +386,11 @@ ${getResponsiveStyles()}
 <header>
   <div class="dot" id="status-dot"></div>
   <h1>justclaw</h1>
+  <div class="service-indicators" id="service-indicators">
+    <span class="svc-dot" id="svc-mcp" title="MCP Server">MCP</span>
+    <span class="svc-dot" id="svc-discord" title="Discord Bot">Bot</span>
+    <span class="svc-dot" id="svc-dashboard" title="Dashboard">Dash</span>
+  </div>
   <div class="header-right">
     <button class="theme-toggle" onclick="cycleTheme()" title="Cycle theme">
       Theme: <span id="theme-label">midnight</span>
@@ -398,6 +398,7 @@ ${getResponsiveStyles()}
     <div class="uptime-info">
       <span id="clock"></span>
       <span class="uptime-badge" id="uptime" title="Dashboard uptime">--</span>
+      <span class="uptime-badge" id="refresh-countdown" title="Next refresh">--</span>
     </div>
   </div>
 </header>
@@ -413,6 +414,7 @@ ${getResponsiveStyles()}
 
 <div class="tab-page active" id="page-overview">
   <div class="stats" id="stats"></div>
+  <div id="alerts-banner" class="alerts-banner" style="display:none"></div>
   <div id="snapshot-bar" class="snapshot-bar" style="display:none"></div>
   <div class="grid-overview">
     <div class="panel">
