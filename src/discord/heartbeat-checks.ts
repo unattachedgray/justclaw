@@ -117,7 +117,10 @@ export function checkStaleClaudeProcesses(maxAgeSeconds = 600): CheckResult {
   }
 }
 
-/** Check 3: PM2 health — restart loops and stopped processes. */
+/** Check 3: PM2 health — restart loops and stopped processes.
+ * Distinguishes active crash loops from stale restart counters (e.g. dev restarts).
+ * A process is only crash-looping if restart_time > threshold AND uptime < 60s.
+ * High restart count with stable uptime = stale counter from development. */
 export function checkPm2Health(restartThreshold = 5): CheckResult {
   try {
     const output = execSync('pm2 jlist 2>/dev/null', { encoding: 'utf-8', timeout: 5000 });
@@ -129,13 +132,23 @@ export function checkPm2Health(restartThreshold = 5): CheckResult {
 
     const crashLooping: string[] = [];
     const stopped: string[] = [];
+    const staleCounters: string[] = [];
+    const STABLE_UPTIME_MS = 60_000; // 60s — if up this long, it's not crash-looping
 
     for (const app of apps) {
-      if (app.pm2_env.restart_time > restartThreshold) {
-        crashLooping.push(`${app.name} (${app.pm2_env.restart_time} restarts)`);
-      }
       if (app.pm2_env.status === 'stopped' || app.pm2_env.status === 'errored') {
         stopped.push(`${app.name} (${app.pm2_env.status})`);
+      } else if (app.pm2_env.restart_time > restartThreshold) {
+        const uptimeMs = Date.now() - (app.pm2_env.pm_uptime || 0);
+        if (uptimeMs < STABLE_UPTIME_MS) {
+          crashLooping.push(`${app.name} (${app.pm2_env.restart_time} restarts, uptime ${Math.round(uptimeMs / 1000)}s)`);
+        } else {
+          // Stale counter from dev restarts — auto-reset it
+          staleCounters.push(app.name);
+          try {
+            execSync(`pm2 reset ${app.name} 2>/dev/null`, { timeout: 3000 });
+          } catch { /* ignore reset failure */ }
+        }
       }
     }
 
@@ -143,11 +156,16 @@ export function checkPm2Health(restartThreshold = 5): CheckResult {
     const details: string[] = [];
     if (crashLooping.length > 0) details.push(`Crash-looping: ${crashLooping.join(', ')}`);
     if (stopped.length > 0) details.push(`Stopped: ${stopped.join(', ')}`);
+    if (staleCounters.length > 0) details.push(`Reset stale counters: ${staleCounters.join(', ')}`);
+
+    const okDetail = staleCounters.length > 0
+      ? `${apps.length} processes healthy (reset ${staleCounters.join(', ')} counters)`
+      : `${apps.length} processes healthy`;
 
     return {
       ok: !hasIssue,
       code: stopped.length > 0 ? 'PROCESS_DOWN' : crashLooping.length > 0 ? 'CRASH_LOOP' : '',
-      detail: hasIssue ? details.join('. ') : `${apps.length} processes healthy`,
+      detail: hasIssue ? details.join('. ') : okDetail,
       actions: [],
     };
   } catch (err) {
