@@ -35,7 +35,6 @@ export function createApiRoutes(db: DB): Hono {
   const startTime = Date.now() / 1000;
 
   // --- Data API endpoints ---
-
   api.get('/status', (c) => {
     const pending = db.fetchall(
       "SELECT id, title, priority, status FROM tasks WHERE status IN ('pending', 'active') ORDER BY priority ASC LIMIT 10",
@@ -147,31 +146,28 @@ export function createApiRoutes(db: DB): Hono {
     });
   });
 
-  // Simple test endpoint
-  api.get('/test-chat', async (c) => {
-    log.info('test-chat hit');
+  // --- Token usage (equivalent cost — included in Max plan, shown for reference) ---
+  api.get('/token-usage', (c) => {
+    const todayStart = db.today() + ' 00:00:00';
+    const todayTok = db.fetchone("SELECT COALESCE(SUM(input_tokens),0) as input, COALESCE(SUM(output_tokens),0) as output FROM process_registry WHERE started_at >= ?", [todayStart]);
+    const weekTok = db.fetchone("SELECT COALESCE(SUM(input_tokens),0) as input, COALESCE(SUM(output_tokens),0) as output FROM process_registry WHERE started_at >= date('now', '-7 days')");
+    const trend = db.fetchall("SELECT date(started_at) as day, SUM(input_tokens) as input, SUM(output_tokens) as output FROM process_registry WHERE started_at >= date('now', '-7 days') AND (input_tokens > 0 OR output_tokens > 0) GROUP BY day ORDER BY day");
+    const wIn = (weekTok?.input as number) || 0, wOut = (weekTok?.output as number) || 0;
+    return c.json({ today: todayTok, week: weekTok, trend, equivalent_cost_usd: Math.round(((wIn / 1e6) * 15 + (wOut / 1e6) * 75) * 100) / 100 });
+  });
+
+  // --- Build action ---
+  api.post('/actions/build', (c) => {
     try {
-      const { spawn: sp } = await import('child_process');
-      const home = process.env.HOME || '';
-      const claudeBin = home + '/.local/bin/claude';
-      const shellCmd = `setsid -w '${claudeBin}' -p 'say hi' --output-format json`;
-      log.info('Running: ' + shellCmd);
-      const result = await new Promise<string>((resolve, reject) => {
-        const child = sp('bash', ['-c', shellCmd], { stdio: ['ignore', 'pipe', 'pipe'] });
-        let out = '';
-        child.stdout!.on('data', (d: Buffer) => { out += d.toString(); });
-        child.on('close', (code: number | null) => code === 0 ? resolve(out) : reject(new Error('exit ' + code)));
-        child.on('error', reject);
-      });
-      return c.json({ ok: true, result: result.slice(0, 300) });
-    } catch (e) {
-      return c.json({ error: String(e) }, 500);
+      const out = execSync('npm run build 2>&1', { cwd: projectRoot(), timeout: 60_000 }).toString();
+      return c.json({ ok: true, output: out.slice(-500) });
+    } catch (e: unknown) {
+      const err = e as { stderr?: Buffer; stdout?: Buffer; message?: string };
+      return c.json({ error: (err.stderr?.toString() || err.stdout?.toString() || err.message || '').slice(-500) }, 500);
     }
   });
 
-  // Chat session ID — persists across messages for multi-turn conversation.
-  let chatSessionId: string | null = null;
-
+  let chatSessionId: string | null = null; // Persists across messages for multi-turn conversation
   api.post('/conversations/send', async (c) => {
     const body = await c.req.json<{ message?: string; sender?: string; channel?: string }>();
     const message = (body.message || '').trim();
@@ -267,14 +263,7 @@ export function createApiRoutes(db: DB): Hono {
   });
 
   // --- Process management ---
-
-  api.get('/processes', (c) => {
-    return c.json({
-      mcp_server: pidStatus('justclaw'),
-      dashboard: pidStatus('dashboard'),
-    });
-  });
-
+  api.get('/processes', (c) => c.json({ mcp_server: pidStatus('justclaw'), dashboard: pidStatus('dashboard') }));
   api.post('/processes/kill', async (c) => {
     const body = await c.req.json<{ pid?: number }>();
     if (!body.pid) return c.json({ error: 'pid required' }, 400);
@@ -288,7 +277,6 @@ export function createApiRoutes(db: DB): Hono {
       return c.json({ error: String(e) }, 404);
     }
   });
-
   api.post('/processes/check-ghosts', (c) => {
     const mcp = pidStatus('justclaw');
     const dashboard = pidStatus('dashboard');
@@ -297,7 +285,6 @@ export function createApiRoutes(db: DB): Hono {
     if (!dashboard.alive && dashboard.pid !== null) stale.push('dashboard.pid');
     return c.json({ mcp_server: mcp, dashboard, stale_pid_files: stale });
   });
-
   api.get('/ghost-state', (c) => {
     const path = join(projectRoot(), 'data', 'ghost_check_state.json');
     if (existsSync(path)) {
@@ -344,7 +331,6 @@ export function createApiRoutes(db: DB): Hono {
   });
 
   // --- Metrics (aggregated for dashboard) ---
-
   api.get('/metrics', (c) => {
     // System resources
     const memFree = freemem();
@@ -405,8 +391,74 @@ export function createApiRoutes(db: DB): Hono {
     });
   });
 
-  // --- SSE ---
+  // --- Actions ---
+  api.post('/actions/build', (c) => {
+    try {
+      const output = execSync('npm run build', { cwd: projectRoot(), timeout: 60000, encoding: 'utf-8' });
+      log.info('Build completed via dashboard');
+      return c.json({ ok: true, output: output.slice(-2000) });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      log.error('Build failed via dashboard', { error: msg.slice(0, 500) });
+      return c.json({ error: msg.slice(0, 2000) }, 500);
+    }
+  });
 
+  // --- Activity Heatmap ---
+  api.get('/heatmap', (c) => {
+    const convRows = db.fetchall(
+      "SELECT strftime('%w', created_at) as dow, strftime('%H', created_at) as hour, COUNT(*) as count FROM conversations WHERE created_at >= date('now', '-30 days') GROUP BY dow, hour",
+    );
+    const procRows = db.fetchall(
+      "SELECT strftime('%w', started_at) as dow, strftime('%H', started_at) as hour, COUNT(*) as count FROM process_registry WHERE started_at >= date('now', '-30 days') GROUP BY dow, hour",
+    );
+
+    const grid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
+    let max = 0;
+    for (const row of [...convRows, ...procRows]) {
+      const val = (grid[Number(row.dow)][Number(row.hour)] += row.count as number);
+      if (val > max) max = val;
+    }
+    return c.json({
+      grid,
+      max,
+      days: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+    });
+  });
+
+  // --- Webhook ---
+  let lastWebhookTime = 0;
+  api.post('/webhook', async (c) => {
+    const token = process.env.JUSTCLAW_WEBHOOK_TOKEN;
+    if (!token) return c.json({ error: 'Webhook not configured' }, 503);
+
+    const auth = c.req.header('Authorization') || '';
+    if (auth !== `Bearer ${token}`) {
+      return c.json({ error: 'Unauthorized' }, 401);
+    }
+
+    const now = Date.now();
+    if (now - lastWebhookTime < 1000) {
+      return c.json({ error: 'Rate limited' }, 429);
+    }
+    lastWebhookTime = now;
+
+    const body = await c.req.json<{ message?: string; sender?: string; channel?: string }>();
+    const message = (body.message || '').trim();
+    if (!message) return c.json({ error: 'message required' }, 400);
+
+    const sender = (body.sender || 'webhook').trim();
+    const channel = (body.channel || 'webhook').trim();
+    const ts = db.now();
+    const result = db.execute(
+      'INSERT INTO conversations (channel, sender, message, is_from_charlie, created_at) VALUES (?, ?, ?, 0, ?)',
+      [channel, sender, message, ts],
+    );
+    pushEvent('refresh', JSON.stringify({ reason: 'webhook' }));
+    return c.json({ ok: true, id: Number(result.lastInsertRowid) });
+  });
+
+  // --- SSE ---
   api.get('/events', (c) => {
     return stream(c, async (s) => {
       const readable = new ReadableStream<string>({

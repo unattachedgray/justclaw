@@ -1,6 +1,7 @@
 /** Dashboard inline JavaScript — extracted to stay under 500-line file limit. */
 
 import { getEditModeScripts } from './html-edit-mode.js';
+import { getHeatmapScripts, getQuickActionsScripts, getInitScripts } from './html-extras.js';
 
 export function getDashboardScripts(): string {
   return `
@@ -93,23 +94,17 @@ ${getLogScripts()}
 // --- Edit mode ---
 ${getEditModeScripts()}
 
+// --- Heatmap ---
+${getHeatmapScripts()}
+
+// --- Quick Actions ---
+${getQuickActionsScripts()}
+
 // --- SSE ---
 ${getSseScripts()}
 
 // --- Init & refresh countdown ---
-let _refreshIn = 10;
-function tickCountdown() {
-  _refreshIn--;
-  const el = $('refresh-countdown');
-  if (el) el.textContent = _refreshIn + 's';
-  if (_refreshIn <= 0) { _refreshIn = 10; refreshOverview(); }
-}
-fetchUptime();
-updateClock();
-setInterval(updateClock, 1000);
-setInterval(fetchUptime, 60000);
-refreshOverview();
-setInterval(tickCountdown, 1000);
+${getInitScripts()}
 `;
 }
 
@@ -312,6 +307,7 @@ async function refreshOverview() {
     renderMemories(mems);
     renderConvoList(convos, 'overview-convos');
     renderDailyLog(log);
+    fetchHeatmap();
     $('status-dot').style.background = 'var(--green)';
   } catch {
     $('status-dot').style.background = 'var(--red)';

@@ -2,6 +2,7 @@
 
 import { getDashboardScripts } from './html-scripts.js';
 import { getEditModeStyles, getEditToggleHtml } from './html-edit-mode.js';
+import { getHeatmapStyles, getQuickActionsHtml, getQuickActionsStyles } from './html-extras.js';
 
 function getThemeStyles(): string {
   return `
@@ -381,6 +382,8 @@ ${getTaskStyles()}
 ${getUtilStyles()}
 ${getResponsiveStyles()}
 ${getEditModeStyles()}
+${getHeatmapStyles()}
+${getQuickActionsStyles()}
 </style>
 </head>
 <body>
@@ -418,6 +421,7 @@ ${getEditModeStyles()}
   <div class="stats" id="stats"></div>
   <div id="alerts-banner" class="alerts-banner" style="display:none"></div>
   <div id="snapshot-bar" class="snapshot-bar" style="display:none"></div>
+  ${getQuickActionsHtml()}
   <div class="grid-overview">
     <div class="panel" data-pid="panel-tasks">
       <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Work Queue</div>
@@ -438,6 +442,10 @@ ${getEditModeStyles()}
     <div class="panel" data-pid="panel-dailylog">
       <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Daily Log</div>
       <div class="panel-body" id="daily-log"></div>
+    </div>
+    <div class="panel" data-pid="panel-heatmap">
+      <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Activity Heatmap</div>
+      <div class="panel-body" id="heatmap"></div>
     </div>
   </div>
 </div>

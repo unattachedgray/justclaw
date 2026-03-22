@@ -60,7 +60,7 @@ export function getEditModeScripts(): string {
 // --- Dashboard Edit Mode ---
 let _editMode = false;
 const LAYOUT_KEY = 'justclaw-dashboard-layout';
-const DEFAULT_GRID_ORDER = ['panel-tasks','panel-scheduled','panel-memories','panel-convos','panel-dailylog'];
+const DEFAULT_GRID_ORDER = ['panel-tasks','panel-scheduled','panel-memories','panel-convos','panel-dailylog','panel-heatmap'];
 const DEFAULT_STAT_ORDER = ['stat-messages','stat-queue','stat-runs','stat-memories','stat-ram','stat-disk'];
 
 function getLayout() {
