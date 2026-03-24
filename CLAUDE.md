@@ -286,6 +286,8 @@ Six-layer system that makes every session feel like the same agent waking up. Wo
 | `/audit <area>` | Deep code audit for bugs and architecture issues |
 | `/adr <title>` | Create Architecture Decision Record |
 | `/review` | Pre-commit quality checklist |
+| `/code-review [mode]` | **Multi-agent code review** — 5 specialist agents (style, security, performance, architecture, synthesis). Modes: `full`, `security`, `performance`, `architecture`, `style`. Based on harness-100 #21. |
+| `/postmortem [mode]` | **Incident postmortem** — 5-agent team (timeline, root cause, impact, remediation, review). Modes: `full`, `timeline`, `rca`, `remediation`, `review`. Based on harness-100 #25. |
 | `/hats <name>` | Apply specialized persona (architect, code-reviewer, debugger, feature-dev, security-reviewer) |
 | `/eval [skill]` | Run skill evaluations against test cases, detect regressions |
 | `/build [prd]` | PRD-driven autonomous build loop with plan verification and quality gates |
