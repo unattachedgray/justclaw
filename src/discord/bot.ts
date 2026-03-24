@@ -311,6 +311,63 @@ function closeCurrentPhase(progress: ProgressState): void {
   }
 }
 
+/** Process an assistant-type stream event: handle text blocks and tool_use blocks. */
+function processAssistantEvent(
+  content: Array<Record<string, unknown>>,
+  progress: ProgressState,
+): void {
+  for (const block of content) {
+    if (block.type === 'text') {
+      const text = (block.text as string) || '';
+      if (text.trim()) {
+        // Text before tools becomes the next phase label.
+        // If we already have an active phase with steps, close it first —
+        // new text means Claude is transitioning to a new phase.
+        const current = getCurrentPhase(progress);
+        if (current && current.steps.length > 0) {
+          closeCurrentPhase(progress);
+        }
+        progress.pendingText += ' ' + text;
+      }
+    } else if (block.type === 'tool_use') {
+      const toolName = block.name as string;
+      const input = block.input as Record<string, unknown> | undefined;
+      const detail = extractDetail(input);
+
+      const phase = ensureActivePhase(progress);
+
+      const lastStep = phase.steps[phase.steps.length - 1];
+      if (lastStep && !lastStep.done) {
+        lastStep.done = true;
+      }
+
+      phase.steps.push({ tool: toolName, detail, done: false });
+      progress.dirty = true;
+
+      if (isAgentTool(toolName)) {
+        progress.hasActiveAgent = true;
+      }
+    }
+  }
+}
+
+/** Process a user-type stream event (tool result): mark last step done. */
+function processUserEvent(progress: ProgressState): void {
+  const current = getCurrentPhase(progress);
+  if (current) {
+    const lastStep = current.steps[current.steps.length - 1];
+    if (lastStep && !lastStep.done) {
+      lastStep.done = true;
+      progress.dirty = true;
+
+      if (isAgentTool(lastStep.tool)) {
+        progress.hasActiveAgent = false;
+      }
+    }
+  }
+  progress.turns++;
+}
+
 function processStreamEvent(
   event: Record<string, unknown>,
   progress: ProgressState,
@@ -322,64 +379,11 @@ function processStreamEvent(
     if (!msg) return;
     const content = msg.content as Array<Record<string, unknown>> | undefined;
     if (!content) return;
-
     progress.turns = Math.max(progress.turns, 1);
-
-    for (const block of content) {
-      if (block.type === 'text') {
-        const text = (block.text as string) || '';
-        if (text.trim()) {
-          // Text before tools becomes the next phase label.
-          // If we already have an active phase with steps, close it first —
-          // new text means Claude is transitioning to a new phase.
-          const current = getCurrentPhase(progress);
-          if (current && current.steps.length > 0) {
-            closeCurrentPhase(progress);
-          }
-          progress.pendingText += ' ' + text;
-        }
-      } else if (block.type === 'tool_use') {
-        const toolName = block.name as string;
-        const input = block.input as Record<string, unknown> | undefined;
-        const detail = extractDetail(input);
-
-        // Ensure we have an active phase.
-        const phase = ensureActivePhase(progress);
-
-        // Mark previous step done if needed.
-        const lastStep = phase.steps[phase.steps.length - 1];
-        if (lastStep && !lastStep.done) {
-          lastStep.done = true;
-        }
-
-        // Add new step.
-        phase.steps.push({ tool: toolName, detail, done: false });
-        progress.dirty = true;
-
-        // Track agent tools for timeout extension.
-        if (isAgentTool(toolName)) {
-          progress.hasActiveAgent = true;
-        }
-      }
-    }
+    processAssistantEvent(content, progress);
   } else if (type === 'user') {
-    // Tool result — mark last step done.
-    const current = getCurrentPhase(progress);
-    if (current) {
-      const lastStep = current.steps[current.steps.length - 1];
-      if (lastStep && !lastStep.done) {
-        lastStep.done = true;
-        progress.dirty = true;
-
-        // If this was an agent tool completing, clear the flag.
-        if (isAgentTool(lastStep.tool)) {
-          progress.hasActiveAgent = false;
-        }
-      }
-    }
-    progress.turns++;
+    processUserEvent(progress);
   } else if (type === 'result') {
-    // Close everything.
     closeCurrentPhase(progress);
     progress.hasActiveAgent = false;
     progress.dirty = true;
@@ -395,6 +399,224 @@ interface ClaudeResult {
   sessionId: string | null;
 }
 
+/** All tools granted to the Discord bot's claude -p process. */
+const ALLOWED_TOOLS = [
+  'mcp__justclaw__*',       // All justclaw MCP tools (memory, tasks, context, etc.)
+  'Bash(git:*)',            // Git operations
+  'Bash(npm:*)',            // npm install, run, etc.
+  'Bash(npx:*)',            // npx commands
+  'Bash(node:*)',           // Run Node.js scripts
+  'Bash(python3:*)',        // Python scripts
+  'Bash(pip:*)',            // Python packages
+  'Bash(apt:*)',            // System packages (apt list, apt search — install needs sudo)
+  'Bash(pm2:*)',            // Process management
+  'Bash(curl:*)',           // HTTP requests
+  'Bash(ls:*)',             // Directory listing
+  'Bash(cat:*)',            // Read files
+  'Bash(grep:*)',           // Search files
+  'Bash(find:*)',           // Find files
+  'Bash(head:*)',           // File preview
+  'Bash(tail:*)',           // Log tailing
+  'Bash(wc:*)',             // Word/line count
+  'Bash(df:*)',             // Disk usage
+  'Bash(free:*)',           // Memory usage
+  'Bash(ps:*)',             // Process listing
+  'Bash(uname:*)',          // System info
+  'Bash(date:*)',           // Date/time
+  'Bash(echo:*)',           // Output
+  'Bash(mkdir:*)',          // Create directories
+  'Bash(cp:*)',             // Copy files
+  'Bash(mv:*)',             // Move files
+  'Bash(chmod:*)',          // File permissions
+  'Bash(tar:*)',            // Archives
+  'Bash(unzip:*)',          // Unzip
+  'Bash(jq:*)',             // JSON processing
+  'Bash(sed:*)',            // Stream editing
+  'Bash(awk:*)',            // Text processing
+  'Bash(sort:*)',           // Sorting
+  'Bash(diff:*)',           // File diffs
+  'Bash(tsc:*)',            // TypeScript compiler
+  'Bash(sqlite3:*)',        // Direct SQLite queries
+  'Read', 'Write', 'Edit', // File operations
+  'Glob', 'Grep',          // Search tools
+  'WebSearch', 'WebFetch',  // Web access
+].join(' ');
+
+/** Build the argument list for claude -p invocation. */
+function buildClaudeArgs(message: string, sessionId: string | null): string[] {
+  const args = [
+    '-p', message,
+    '--output-format', 'stream-json',
+    '--verbose',
+    '--allowedTools', ALLOWED_TOOLS,
+  ];
+  if (sessionId) {
+    args.push('--resume', sessionId);
+  }
+  return args;
+}
+
+/** Start typing indicator, progress editor, and inactivity watchdog. Returns cleanup function. */
+function setupClaudeTimers(
+  sourceMsg: Message,
+  progressMsg: Message | null,
+  progress: ProgressState,
+  channelId: string,
+  child: { kill: (signal?: number | NodeJS.Signals) => boolean; pid?: number | undefined },
+  lastActivityRef: { value: number },
+): () => void {
+  const typingTimer = setInterval(() => {
+    if ('sendTyping' in sourceMsg.channel) {
+      (sourceMsg.channel as TextChannel).sendTyping().catch(() => {});
+    }
+  }, TYPING_INTERVAL_MS);
+
+  let lastEditAt = 0;
+  const progressTimer = setInterval(() => {
+    const timeSinceEdit = Date.now() - lastEditAt;
+    if (!progressMsg) return;
+    if (!progress.dirty && timeSinceEdit < 10_000) return;
+    if (timeSinceEdit < PROGRESS_EDIT_INTERVAL_MS) return;
+
+    progress.dirty = false;
+    lastEditAt = Date.now();
+    const text = renderProgress(progress);
+    progressMsg.edit(text).catch(() => {});
+  }, PROGRESS_EDIT_INTERVAL_MS);
+
+  const inactivityTimer = setInterval(() => {
+    const timeout = progress.hasActiveAgent ? AGENT_INACTIVITY_MS : BASE_INACTIVITY_MS;
+    const idleMs = Date.now() - lastActivityRef.value;
+
+    if (idleMs > timeout) {
+      log.warn('Inactivity timeout — killing claude', {
+        channelId,
+        elapsed: elapsed(progress.startedAt),
+        idleMs, timeout,
+        hasActiveAgent: progress.hasActiveAgent,
+        lastPhase: getCurrentPhase(progress)?.label,
+      });
+      try { child.kill('SIGTERM'); } catch (e: unknown) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') log.warn('SIGTERM failed', { pid: child.pid, error: String(e) }); }
+      setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch (e: unknown) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') log.warn('SIGKILL failed', { pid: child.pid, error: String(e) }); }
+      }, 5_000);
+    }
+  }, 10_000);
+
+  return () => {
+    clearInterval(typingTimer);
+    clearInterval(progressTimer);
+    clearInterval(inactivityTimer);
+  };
+}
+
+/** Extract result fields (text, session_id, usage) from a stream event. */
+function extractResultFromEvent(
+  event: Record<string, unknown>,
+  state: { finalResult: string; sessionId: string | null; inputTokens: number; outputTokens: number },
+): void {
+  if (event.type !== 'result') return;
+  state.finalResult = (event.result as string) || '';
+  const sid = event.session_id as string | undefined;
+  if (sid) state.sessionId = sid;
+  const usage = event.usage as Record<string, number> | undefined;
+  if (usage) {
+    state.inputTokens += usage.input_tokens || 0;
+    state.outputTokens += usage.output_tokens || 0;
+  }
+}
+
+/** Shared mutable state for a single claude -p invocation. */
+interface ClaudeStreamState {
+  buffer: string;
+  stderrBuf: string;
+  settled: boolean;
+  resultState: { finalResult: string; sessionId: string | null; inputTokens: number; outputTokens: number };
+  progress: ProgressState;
+  lastActivityRef: { value: number };
+}
+
+/** Wire stdout/stderr/error/close handlers onto a spawned claude child process. */
+function wireChildHandlers(
+  child: ReturnType<typeof spawnChild>,
+  state: ClaudeStreamState,
+  channelId: string,
+  cleanup: () => void,
+  resolvePromise: (val: ClaudeResult) => void,
+  reject: (err: Error) => void,
+): void {
+  child.stdout!.on('data', (chunk: Buffer) => {
+    state.lastActivityRef.value = Date.now();
+    state.buffer += chunk.toString();
+    const lines = state.buffer.split('\n');
+    state.buffer = lines.pop()!;
+
+    for (const line of lines) {
+      if (!line.trim()) continue;
+      try {
+        const event = JSON.parse(line) as Record<string, unknown>;
+        processStreamEvent(event, state.progress);
+        extractResultFromEvent(event, state.resultState);
+      } catch (e: unknown) {
+        log.debug('Stream JSON parse failed', { error: String(e), line: line.slice(0, 120) });
+      }
+    }
+  });
+
+  child.stderr!.on('data', (chunk: Buffer) => {
+    state.lastActivityRef.value = Date.now();
+    state.stderrBuf += chunk.toString();
+    if (state.stderrBuf.length > 2048) state.stderrBuf = state.stderrBuf.slice(-2048);
+  });
+
+  child.on('error', (err) => {
+    if (state.settled) return;
+    state.settled = true;
+    cleanup();
+    log.error('claude spawn error', { error: String(err) });
+    reject(new Error(String(err)));
+  });
+
+  child.on('close', (code) => {
+    if (state.settled) return;
+    state.settled = true;
+    cleanup();
+    handleChildClose(code, state, channelId, resolvePromise, reject);
+  });
+}
+
+/** Handle the child process close event: drain buffer, resolve or reject. */
+function handleChildClose(
+  code: number | null,
+  state: ClaudeStreamState,
+  channelId: string,
+  resolvePromise: (val: ClaudeResult) => void,
+  reject: (err: Error) => void,
+): void {
+  if (state.buffer.trim()) {
+    try {
+      const event = JSON.parse(state.buffer) as Record<string, unknown>;
+      processStreamEvent(event, state.progress);
+      extractResultFromEvent(event, state.resultState);
+    } catch (e: unknown) {
+      log.debug('Remaining buffer JSON parse failed', { error: String(e) });
+    }
+  }
+
+  if (code !== 0 && !state.resultState.finalResult) {
+    log.error('claude -p exited non-zero', { code, stderr: state.stderrBuf.trim().slice(-500) });
+    reject(new Error(`claude exited with code ${code}`));
+  } else {
+    log.info('claude -p completed', {
+      channelId,
+      elapsed: elapsed(state.progress.startedAt),
+      turns: state.progress.turns,
+      phases: state.progress.phases.length,
+    });
+    resolvePromise({ reply: state.resultState.finalResult, sessionId: state.resultState.sessionId });
+  }
+}
+
 async function callClaude(
   message: string,
   channelId: string,
@@ -404,59 +626,8 @@ async function callClaude(
   db: DB,
 ): Promise<ClaudeResult> {
   const claudeBin = findClaudeBin();
-  const args = [
-    '-p', message,
-    '--output-format', 'stream-json',
-    '--verbose',
-    '--allowedTools',
-    [
-      'mcp__justclaw__*',       // All justclaw MCP tools (memory, tasks, context, etc.)
-      'Bash(git:*)',            // Git operations
-      'Bash(npm:*)',            // npm install, run, etc.
-      'Bash(npx:*)',            // npx commands
-      'Bash(node:*)',           // Run Node.js scripts
-      'Bash(python3:*)',        // Python scripts
-      'Bash(pip:*)',            // Python packages
-      'Bash(apt:*)',            // System packages (apt list, apt search — install needs sudo)
-      'Bash(pm2:*)',            // Process management
-      'Bash(curl:*)',           // HTTP requests
-      'Bash(ls:*)',             // Directory listing
-      'Bash(cat:*)',            // Read files
-      'Bash(grep:*)',           // Search files
-      'Bash(find:*)',           // Find files
-      'Bash(head:*)',           // File preview
-      'Bash(tail:*)',           // Log tailing
-      'Bash(wc:*)',             // Word/line count
-      'Bash(df:*)',             // Disk usage
-      'Bash(free:*)',           // Memory usage
-      'Bash(ps:*)',             // Process listing
-      'Bash(uname:*)',          // System info
-      'Bash(date:*)',           // Date/time
-      'Bash(echo:*)',           // Output
-      'Bash(mkdir:*)',          // Create directories
-      'Bash(cp:*)',             // Copy files
-      'Bash(mv:*)',             // Move files
-      'Bash(chmod:*)',          // File permissions
-      'Bash(tar:*)',            // Archives
-      'Bash(unzip:*)',          // Unzip
-      'Bash(jq:*)',             // JSON processing
-      'Bash(sed:*)',            // Stream editing
-      'Bash(awk:*)',            // Text processing
-      'Bash(sort:*)',           // Sorting
-      'Bash(diff:*)',           // File diffs
-      'Bash(tsc:*)',            // TypeScript compiler
-      'Bash(sqlite3:*)',        // Direct SQLite queries
-      'Read', 'Write', 'Edit', // File operations
-      'Glob', 'Grep',          // Search tools
-      'WebSearch', 'WebFetch',  // Web access
-    ].join(' '),
-  ];
-  if (sessionId) {
-    args.push('--resume', sessionId);
-  }
-
+  const args = buildClaudeArgs(message, sessionId);
   log.info('Calling claude (streaming)', { bin: claudeBin, channelId, hasSession: !!sessionId });
-
   const shellCmd = buildShellCmd([claudeBin, ...args]);
 
   return new Promise<ClaudeResult>((resolvePromise, reject) => {
@@ -465,7 +636,6 @@ async function callClaude(
       env: buildClaudeEnv(),
     });
 
-    // Track child PID for process management.
     if (child.pid == null) {
       reject(new Error('Failed to spawn claude -p (no PID)'));
       return;
@@ -474,163 +644,27 @@ async function callClaude(
     registerProcess(db, child.pid, 'claude-p', `channel:${channelId}`);
     log.info('claude -p spawned', { pid: child.pid, channelId });
 
-    let lastActivityAt = Date.now();
-    let buffer = '';
-    let finalResult = '';
-    let newSessionId: string | null = sessionId;
-    let settled = false;
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-
-    const progress: ProgressState = {
-      phases: [],
-      turns: 0,
-      startedAt: Date.now(),
-      dirty: false,
-      hasActiveAgent: false,
-      pendingText: '',
+    const state: ClaudeStreamState = {
+      buffer: '', stderrBuf: '', settled: false,
+      resultState: { finalResult: '', sessionId, inputTokens: 0, outputTokens: 0 },
+      progress: { phases: [], turns: 0, startedAt: Date.now(), dirty: false, hasActiveAgent: false, pendingText: '' },
+      lastActivityRef: { value: Date.now() },
     };
 
-    // -- Typing indicator refresh --
-    const typingTimer = setInterval(() => {
-      if ('sendTyping' in sourceMsg.channel) {
-        (sourceMsg.channel as TextChannel).sendTyping().catch(() => {});
-      }
-    }, TYPING_INTERVAL_MS);
+    const clearTimers = setupClaudeTimers(sourceMsg, progressMsg, state.progress, channelId, child, state.lastActivityRef);
 
-    // -- Progress message editor --
-    let lastEditAt = 0;
-    const progressTimer = setInterval(() => {
-      // Always update the elapsed time display periodically.
-      const timeSinceEdit = Date.now() - lastEditAt;
-      if (!progressMsg) return;
-      if (!progress.dirty && timeSinceEdit < 10_000) return;
-
-      // Respect rate limit between edits.
-      if (timeSinceEdit < PROGRESS_EDIT_INTERVAL_MS) return;
-
-      progress.dirty = false;
-      lastEditAt = Date.now();
-      const text = renderProgress(progress);
-      progressMsg.edit(text).catch(() => {});
-    }, PROGRESS_EDIT_INTERVAL_MS);
-
-    // -- Adaptive inactivity timeout --
-    const inactivityTimer = setInterval(() => {
-      const timeout = progress.hasActiveAgent ? AGENT_INACTIVITY_MS : BASE_INACTIVITY_MS;
-      const idleMs = Date.now() - lastActivityAt;
-
-      if (idleMs > timeout) {
-        log.warn('Inactivity timeout — killing claude', {
-          channelId,
-          elapsed: elapsed(progress.startedAt),
-          idleMs,
-          timeout,
-          hasActiveAgent: progress.hasActiveAgent,
-          lastPhase: getCurrentPhase(progress)?.label,
-        });
-        try { child.kill('SIGTERM'); } catch { /* ignore */ }
-        setTimeout(() => {
-          try { child.kill('SIGKILL'); } catch { /* ignore */ }
-        }, 5_000);
-      }
-    }, 10_000);
-
-    function cleanup() {
-      clearInterval(typingTimer);
-      clearInterval(progressTimer);
-      clearInterval(inactivityTimer);
+    const cleanup = () => {
+      clearTimers();
       if (child.pid) {
         activeClaudePids.delete(child.pid);
-        const tokens = (totalInputTokens || totalOutputTokens)
-          ? { input: totalInputTokens, output: totalOutputTokens }
+        const tokens = (state.resultState.inputTokens || state.resultState.outputTokens)
+          ? { input: state.resultState.inputTokens, output: state.resultState.outputTokens }
           : undefined;
         retireProcess(db, child.pid, tokens);
       }
-    }
+    };
 
-    // -- Parse streaming stdout --
-    child.stdout!.on('data', (chunk: Buffer) => {
-      lastActivityAt = Date.now();
-      buffer += chunk.toString();
-      const lines = buffer.split('\n');
-      buffer = lines.pop()!;
-
-      for (const line of lines) {
-        if (!line.trim()) continue;
-        try {
-          const event = JSON.parse(line) as Record<string, unknown>;
-          processStreamEvent(event, progress);
-
-          if (event.type === 'result') {
-            finalResult = (event.result as string) || '';
-            const sid = event.session_id as string | undefined;
-            if (sid) newSessionId = sid;
-            // Capture token usage from result event.
-            const usage = event.usage as Record<string, number> | undefined;
-            if (usage) {
-              totalInputTokens += usage.input_tokens || 0;
-              totalOutputTokens += usage.output_tokens || 0;
-            }
-          }
-        } catch {
-          // Not JSON or partial — ignore.
-        }
-      }
-    });
-
-    let stderrBuf = '';
-    child.stderr!.on('data', (chunk: Buffer) => {
-      lastActivityAt = Date.now();
-      stderrBuf += chunk.toString();
-      // Cap stderr buffer at 2KB to avoid memory bloat.
-      if (stderrBuf.length > 2048) stderrBuf = stderrBuf.slice(-2048);
-    });
-
-    child.on('error', (err) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-      log.error('claude spawn error', { error: String(err) });
-      reject(new Error(String(err)));
-    });
-
-    child.on('close', (code) => {
-      if (settled) return;
-      settled = true;
-      cleanup();
-
-      // Process any remaining buffer.
-      if (buffer.trim()) {
-        try {
-          const event = JSON.parse(buffer) as Record<string, unknown>;
-          processStreamEvent(event, progress);
-          if (event.type === 'result') {
-            finalResult = (event.result as string) || '';
-            const sid = event.session_id as string | undefined;
-            if (sid) newSessionId = sid;
-            const usage = event.usage as Record<string, number> | undefined;
-            if (usage) {
-              totalInputTokens += usage.input_tokens || 0;
-              totalOutputTokens += usage.output_tokens || 0;
-            }
-          }
-        } catch { /* ignore */ }
-      }
-
-      if (code !== 0 && !finalResult) {
-        log.error('claude -p exited non-zero', { code, stderr: stderrBuf.trim().slice(-500) });
-        reject(new Error(`claude exited with code ${code}`));
-      } else {
-        log.info('claude -p completed', {
-          channelId,
-          elapsed: elapsed(progress.startedAt),
-          turns: progress.turns,
-          phases: progress.phases.length,
-        });
-        resolvePromise({ reply: finalResult, sessionId: newSessionId });
-      }
-    });
+    wireChildHandlers(child, state, channelId, cleanup, resolvePromise, reject);
   });
 }
 
@@ -685,173 +719,224 @@ function coalesceMessages(messages: Message[]): string {
     .join('\n');
 }
 
+/** If circuit breaker is open, notify user and re-queue. Returns true if open. */
+async function checkCircuitBreaker(state: ChannelState): Promise<boolean> {
+  if (Date.now() >= state.circuitOpenUntil) return false;
+  const remaining = Math.ceil((state.circuitOpenUntil - Date.now()) / 60_000);
+  const msg = state.queue.shift();
+  if (msg) {
+    try {
+      await msg.reply(`⏸️ Claude API appears to be down. Pausing for ${remaining}min. Your message is saved.`);
+    } catch (e: unknown) { log.warn('Discord reply failed (circuit breaker)', { error: String(e) }); }
+    state.queue.unshift(msg);
+  }
+  return true;
+}
+
+/** Rotate session if stale/long, sending handover prompt first. */
+async function maybeRotateSession(
+  state: ChannelState & { lastActiveAt: number },
+  channelId: string,
+  primaryMsg: Message,
+  db: DB,
+): Promise<void> {
+  const persisted = loadSession(db, channelId);
+  const rotationCheck = shouldRotateSession(
+    persisted?.lastUsedAt ?? null,
+    persisted?.turnCount ?? 0,
+  );
+  if (!rotationCheck.rotate || !state.sessionId) return;
+
+  log.info('Session rotation triggered', {
+    channelId, reason: rotationCheck.reason, turnCount: persisted?.turnCount,
+  });
+
+  try {
+    const handoverResult = await callClaude(
+      buildHandoverPrompt(), channelId, state.sessionId, null, primaryMsg, db,
+    );
+    if (handoverResult.reply) {
+      db.execute(
+        'INSERT INTO conversations (channel, sender, message, is_from_charlie, created_at) VALUES (?, ?, ?, 1, ?)',
+        ['discord', 'charlie', `[handover] ${handoverResult.reply.slice(0, 500)}`, db.now()],
+      );
+    }
+  } catch (err) {
+    log.warn('Handover prompt failed, rotating anyway', { error: String(err) });
+  }
+
+  state.sessionId = null;
+  clearSession(db, channelId);
+  invalidatePreambleCache(channelId);
+}
+
+/** Call claude with stale-session retry: if first call fails with a session, retry without it. */
+async function callClaudeWithRetry(
+  fullPrompt: string,
+  channelId: string,
+  state: ChannelState,
+  progressMsg: Message | null,
+  primaryMsg: Message,
+  db: DB,
+): Promise<ClaudeResult> {
+  try {
+    return await callClaude(fullPrompt, channelId, state.sessionId, progressMsg, primaryMsg, db);
+  } catch (firstErr) {
+    if (state.sessionId) {
+      log.warn('Retrying without session (stale session recovery)', { channelId });
+      state.sessionId = null;
+      clearSession(db, channelId);
+      invalidatePreambleCache(channelId);
+      return await callClaude(fullPrompt, channelId, null, progressMsg, primaryMsg, db);
+    }
+    throw firstErr;
+  }
+}
+
+/** Replace progress message with final response chunks. */
+async function sendFinalResponse(
+  replyText: string,
+  progressMsg: Message | null,
+  primaryMsg: Message,
+): Promise<void> {
+  const text = replyText.trim() || '*(completed with no text output)*';
+  const chunks = splitMessage(text);
+  if (progressMsg) {
+    try {
+      await progressMsg.edit(chunks[0]);
+      for (let i = 1; i < chunks.length; i++) {
+        await (primaryMsg.channel as TextChannel).send(chunks[i]);
+      }
+    } catch (e: unknown) {
+      log.warn('Progress message edit failed, sending as new messages', { error: String(e) });
+      for (const chunk of chunks) {
+        await (primaryMsg.channel as TextChannel).send(chunk);
+      }
+    }
+  } else {
+    for (const chunk of chunks) {
+      await primaryMsg.reply(chunk);
+    }
+  }
+}
+
+/** Trigger pre-compaction context flush if turn count is high enough. */
+async function maybeFlushContext(
+  channelId: string,
+  state: ChannelState,
+  sessionId: string | null,
+  primaryMsg: Message,
+  db: DB,
+): Promise<void> {
+  if (!sessionId) return;
+  const currentTurnCount = getSessionTurnCount(db, channelId);
+  if (!shouldFlushContext(currentTurnCount)) return;
+
+  log.info('Triggering pre-compaction flush', { channelId, turnCount: currentTurnCount });
+  try {
+    const flushResult = await callClaude(
+      buildFlushReminder(), channelId, sessionId, null, primaryMsg, db,
+    );
+    if (flushResult.sessionId) {
+      saveSession(db, channelId, flushResult.sessionId, 1);
+      state.sessionId = flushResult.sessionId;
+    }
+  } catch (err) {
+    log.warn('Pre-compaction flush failed', { error: String(err) });
+  }
+}
+
+/** Track consecutive failures and open circuit breaker after 3. */
+async function handleQueueError(
+  err: unknown,
+  channelId: string,
+  state: ChannelState,
+  primaryMsg: Message,
+): Promise<void> {
+  log.error('Failed to get Claude response', { error: String(err), channelId });
+
+  state.consecutiveFailures++;
+  if (state.consecutiveFailures >= 3) {
+    const cooldownMin = Math.min(5 * Math.pow(2, state.consecutiveFailures - 3), 30);
+    state.circuitOpenUntil = Date.now() + cooldownMin * 60_000;
+    log.warn('Circuit breaker OPEN', { channelId, failures: state.consecutiveFailures, cooldownMin });
+    try {
+      await primaryMsg.reply(`⏸️ Claude has failed ${state.consecutiveFailures} times in a row. Pausing for ${cooldownMin}min.`);
+    } catch (e: unknown) { log.warn('Discord reply failed (circuit open)', { error: String(e) }); }
+  } else {
+    try {
+      await primaryMsg.reply(`⚠️ Error: ${String(err).slice(0, 150)}`);
+    } catch (e: unknown) { log.warn('Discord reply failed (error notification)', { error: String(e) }); }
+  }
+}
+
+/** Execute a batch of queued messages: rotate session, call claude, send response. */
+async function executeQueuedMessages(
+  messages: Message[],
+  channelId: string,
+  state: ChannelState & { lastActiveAt: number },
+  db: DB,
+): Promise<void> {
+  const primaryMsg = messages[0];
+
+  if (messages.length > 1) {
+    log.info('Coalesced messages', { channelId, count: messages.length });
+  }
+
+  await maybeRotateSession(state, channelId, primaryMsg, db);
+
+  const userContent = coalesceMessages(messages);
+  const preamble = buildIdentityPreamble(db, channelId);
+  const fullPrompt = preamble + '\n---\n' + userContent;
+
+  let progressMsg: Message | null = null;
+  try {
+    progressMsg = await primaryMsg.reply('📋 **Working on your request**\n⏳ Thinking…');
+  } catch (e: unknown) {
+    log.warn('Failed to send progress message', { error: String(e) });
+  }
+
+  const result = await callClaudeWithRetry(fullPrompt, channelId, state, progressMsg, primaryMsg, db);
+  state.sessionId = result.sessionId;
+
+  if (result.sessionId) {
+    saveSession(db, channelId, result.sessionId, 1);
+  }
+
+  state.consecutiveFailures = 0;
+
+  db.execute(
+    'INSERT INTO conversations (channel, sender, message, is_from_charlie, created_at) VALUES (?, ?, ?, 1, ?)',
+    ['discord', 'charlie', result.reply, db.now()],
+  );
+
+  await sendFinalResponse(result.reply, progressMsg, primaryMsg);
+  await maybeFlushContext(channelId, state, result.sessionId, primaryMsg, db);
+}
+
 async function processQueue(channelId: string, db: DB): Promise<void> {
   const state = getChannelState(channelId);
   if (state.busy) return;
 
-  // Circuit breaker: if open, reject with cooldown message.
-  if (Date.now() < state.circuitOpenUntil) {
-    const remaining = Math.ceil((state.circuitOpenUntil - Date.now()) / 60_000);
-    const msg = state.queue.shift();
-    if (msg) {
-      try { await msg.reply(`⏸️ Claude API appears to be down. Pausing for ${remaining}min. Your message is saved.`); } catch { /* */ }
-      // Re-queue so it's processed when circuit closes.
-      state.queue.unshift(msg);
-    }
+  if (await checkCircuitBreaker(state)) {
     state.busy = false;
     return;
   }
 
-  // Phase 3: Wait briefly for additional messages to coalesce.
-  // Only sleep if there are already multiple messages queued (rapid-fire).
-  // Don't delay single messages — that adds latency with no benefit.
+  // Wait briefly for additional messages to coalesce (only when rapid-fire).
   if (state.queue.length > 1) {
     await new Promise((r) => setTimeout(r, COALESCE_WINDOW_MS));
   }
 
-  // Drain all queued messages into a single batch.
   const messages = state.queue.splice(0, state.queue.length);
   if (messages.length === 0) return;
-  const primaryMsg = messages[0];
 
   state.busy = true;
 
   try {
-    // Notify about coalescing if multiple messages were batched.
-    if (messages.length > 1) {
-      log.info('Coalesced messages', { channelId, count: messages.length });
-    }
-
-    // Phase 5: Check if session needs rotation before processing.
-    const persisted = loadSession(db, channelId);
-    const rotationCheck = shouldRotateSession(
-      persisted?.lastUsedAt ?? null,
-      persisted?.turnCount ?? 0,
-    );
-
-    if (rotationCheck.rotate && state.sessionId) {
-      log.info('Session rotation triggered', { channelId, reason: rotationCheck.reason, turnCount: persisted?.turnCount });
-
-      // Send handover prompt to current session to flush context.
-      try {
-        const handoverResult = await callClaude(
-          buildHandoverPrompt(), channelId, state.sessionId, null, primaryMsg, db,
-        );
-        // Log the handover response.
-        if (handoverResult.reply) {
-          db.execute(
-            'INSERT INTO conversations (channel, sender, message, is_from_charlie, created_at) VALUES (?, ?, ?, 1, ?)',
-            ['discord', 'charlie', `[handover] ${handoverResult.reply.slice(0, 500)}`, db.now()],
-          );
-        }
-      } catch (err) {
-        log.warn('Handover prompt failed, rotating anyway', { error: String(err) });
-      }
-
-      // Clear the session — next call starts fresh.
-      state.sessionId = null;
-      clearSession(db, channelId);
-      invalidatePreambleCache(channelId);
-    }
-
-    // Phase 2: Build identity preamble + coalesced user message.
-    const userContent = coalesceMessages(messages);
-    const preamble = buildIdentityPreamble(db, channelId);
-    const fullPrompt = preamble + '\n---\n' + userContent;
-
-    // Send initial progress message.
-    let progressMsg: Message | null = null;
-    try {
-      progressMsg = await primaryMsg.reply('📋 **Working on your request**\n⏳ Thinking…');
-    } catch {
-      /* ignore */
-    }
-
-    let result: ClaudeResult;
-    try {
-      result = await callClaude(fullPrompt, channelId, state.sessionId, progressMsg, primaryMsg, db);
-    } catch (firstErr) {
-      // If we had a session and it failed, retry without session (stale session recovery).
-      if (state.sessionId) {
-        log.warn('Retrying without session (stale session recovery)', { channelId });
-        state.sessionId = null;
-        clearSession(db, channelId);
-      invalidatePreambleCache(channelId);
-        result = await callClaude(fullPrompt, channelId, null, progressMsg, primaryMsg, db);
-      } else {
-        throw firstErr;
-      }
-    }
-    state.sessionId = result.sessionId;
-
-    // Phase 1b: Persist session to DB.
-    if (result.sessionId) {
-      saveSession(db, channelId, result.sessionId, 1);
-    }
-
-    // Circuit breaker: success resets failure count.
-    state.consecutiveFailures = 0;
-
-    // Log response to DB.
-    db.execute(
-      'INSERT INTO conversations (channel, sender, message, is_from_charlie, created_at) VALUES (?, ?, ?, 1, ?)',
-      ['discord', 'charlie', result.reply, db.now()],
-    );
-
-    // Replace progress message with final response.
-    const replyText = result.reply.trim() || '*(completed with no text output)*';
-    const chunks = splitMessage(replyText);
-    if (progressMsg) {
-      try {
-        await progressMsg.edit(chunks[0]);
-        for (let i = 1; i < chunks.length; i++) {
-          await (primaryMsg.channel as TextChannel).send(chunks[i]);
-        }
-      } catch {
-        for (const chunk of chunks) {
-          await (primaryMsg.channel as TextChannel).send(chunk);
-        }
-      }
-    } else {
-      for (const chunk of chunks) {
-        await primaryMsg.reply(chunk);
-      }
-    }
-
-    // Phase 4: Check if we should trigger a pre-compaction flush.
-    const currentTurnCount = getSessionTurnCount(db, channelId);
-    if (shouldFlushContext(currentTurnCount) && result.sessionId) {
-      log.info('Triggering pre-compaction flush', { channelId, turnCount: currentTurnCount });
-      try {
-        const flushResult = await callClaude(
-          buildFlushReminder(), channelId, result.sessionId, null, primaryMsg, db,
-        );
-        if (flushResult.sessionId) {
-          saveSession(db, channelId, flushResult.sessionId, 1);
-          state.sessionId = flushResult.sessionId;
-        }
-      } catch (err) {
-        log.warn('Pre-compaction flush failed', { error: String(err) });
-      }
-    }
+    await executeQueuedMessages(messages, channelId, state, db);
   } catch (err) {
-    log.error('Failed to get Claude response', { error: String(err), channelId });
-
-    // Circuit breaker: track consecutive failures.
-    state.consecutiveFailures++;
-    if (state.consecutiveFailures >= 3) {
-      // Open circuit: escalating cooldown (5min, 10min, 30min max).
-      const cooldownMin = Math.min(5 * Math.pow(2, state.consecutiveFailures - 3), 30);
-      state.circuitOpenUntil = Date.now() + cooldownMin * 60_000;
-      log.warn('Circuit breaker OPEN', { channelId, failures: state.consecutiveFailures, cooldownMin });
-      try {
-        await primaryMsg.reply(`⏸️ Claude has failed ${state.consecutiveFailures} times in a row. Pausing for ${cooldownMin}min.`);
-      } catch { /* ignore */ }
-    } else {
-      try {
-        await primaryMsg.reply(`⚠️ Error: ${String(err).slice(0, 150)}`);
-      } catch { /* ignore */ }
-    }
+    await handleQueueError(err, channelId, state, messages[0]);
   } finally {
     state.busy = false;
     if (state.queue.length > 0) {
@@ -866,57 +951,18 @@ async function processQueue(channelId: string, db: DB): Promise<void> {
 // Main
 // ---------------------------------------------------------------------------
 
-async function main(): Promise<void> {
-  const token = process.env.DISCORD_BOT_TOKEN;
-  if (!token) {
-    log.error('DISCORD_BOT_TOKEN not set');
-    process.exit(1);
-  }
-
-  const allowedChannels = (process.env.DISCORD_CHANNEL_IDS || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-
-  const projectRoot = process.env.JUSTCLAW_ROOT || resolve(process.cwd());
-  const config = loadConfig(process.env.JUSTCLAW_CONFIG);
-  const dbPath = resolveDbPath(config, projectRoot);
-  const db = new DB(dbPath);
-  _botDb = db; // Make DB available to getChannelState for session restore.
-
-  // Register this bot process in the registry.
-  registerProcess(db, process.pid, 'discord-bot');
-
-  log.info('Discord bot starting', {
-    projectRoot,
-    dbPath,
-    pid: process.pid,
-    allowedChannels: allowedChannels.length || 'all',
-    baseTimeoutMs: BASE_INACTIVITY_MS,
-    agentTimeoutMs: AGENT_INACTIVITY_MS,
-  });
-
-  // --- P0: Global error handlers (prevent unhandled crashes) ---
+/** Install global error handlers to prevent unhandled crashes. */
+function setupGlobalErrorHandlers(): void {
   process.on('uncaughtException', (err) => {
     log.error('Uncaught exception (not crashing)', { error: String(err), stack: err.stack?.slice(0, 500) });
   });
   process.on('unhandledRejection', (reason) => {
     log.error('Unhandled rejection (not crashing)', { error: String(reason) });
   });
+}
 
-  // --- Readiness gate: don't process messages until fully connected ---
-  let ready = false;
-
-  const client = new Client({
-    intents: [
-      GatewayIntentBits.Guilds,
-      GatewayIntentBits.GuildMessages,
-      GatewayIntentBits.MessageContent,
-      GatewayIntentBits.DirectMessages,
-    ],
-  });
-
-  // --- P0: Discord error handlers (prevent crashes on WebSocket errors) ---
+/** Install Discord error/shard handlers to prevent crashes on WebSocket errors. */
+function setupDiscordErrorHandlers(client: Client): void {
   client.on('error', (err) => {
     log.error('Discord client error', { error: String(err) });
   });
@@ -932,109 +978,87 @@ async function main(): Promise<void> {
   client.on('shardDisconnect', (event, shardId) => {
     log.warn('Discord shard disconnected', { shardId, code: event.code });
   });
+}
 
-  // Heartbeat config.
-  const heartbeatChannelId = process.env.DISCORD_HEARTBEAT_CHANNEL_ID || process.env.DISCORD_CHANNEL_IDS?.split(',')[0]?.trim() || '';
-  const heartbeatIntervalMs = parseInt(process.env.HEARTBEAT_INTERVAL_MS || '', 10) || 5 * 60 * 1000;
-  let heartbeat: ReturnType<typeof startHeartbeat> | null = null;
+/** Handle an inbound Discord message: log, enqueue, and trigger processing. */
+async function handleInboundMessage(
+  message: Message,
+  allowedChannels: string[],
+  db: DB,
+  ready: boolean,
+): Promise<void> {
+  if (!ready) return;
+  if (message.author.bot) return;
+  if (allowedChannels.length > 0 && !allowedChannels.includes(message.channelId)) return;
 
-  client.once(Events.ClientReady, (c) => {
-    log.info('Discord bot connected', { user: c.user.tag });
-    console.log(`Discord bot connected as ${c.user.tag}`);
+  const content = message.content.trim();
+  if (!content) return;
 
-    // Mark as ready — now we accept messages.
-    ready = true;
-
-    // Notify PM2 we're ready (if wait_ready is enabled).
-    if (typeof process.send === 'function') {
-      process.send('ready');
-    }
-
-    // Start heartbeat if we have a channel to post to.
-    if (heartbeatChannelId) {
-      heartbeat = startHeartbeat({
-        db,
-        client,
-        channelId: heartbeatChannelId,
-        intervalMs: heartbeatIntervalMs,
-      });
-      log.info('Heartbeat enabled', { channelId: heartbeatChannelId, intervalMs: heartbeatIntervalMs });
-    } else {
-      log.warn('Heartbeat disabled — no DISCORD_HEARTBEAT_CHANNEL_ID or DISCORD_CHANNEL_IDS set');
-    }
+  log.info('Inbound message', {
+    sender: message.author.username,
+    channelId: message.channelId,
+    length: content.length,
   });
 
-  client.on(Events.MessageCreate, async (message: Message) => {
-    if (!ready) return; // Readiness gate: skip messages before fully connected
-    if (message.author.bot) return;
-    if (allowedChannels.length > 0 && !allowedChannels.includes(message.channelId)) return;
+  db.execute(
+    'INSERT INTO conversations (channel, sender, message, is_from_charlie, created_at) VALUES (?, ?, ?, 0, ?)',
+    ['discord', message.author.username, content, db.now()],
+  );
 
-    const content = message.content.trim();
-    if (!content) return;
+  const state = getChannelState(message.channelId);
+  state.queue.push(message);
 
-    log.info('Inbound message', {
-      sender: message.author.username,
-      channelId: message.channelId,
-      length: content.length,
-    });
-
-    // Log user message to DB.
-    db.execute(
-      'INSERT INTO conversations (channel, sender, message, is_from_charlie, created_at) VALUES (?, ?, ?, 0, ?)',
-      ['discord', message.author.username, content, db.now()],
+  if (state.busy) {
+    const pos = state.queue.length;
+    try {
+      await message.reply(`📥 Queued (position ${pos}) — I'll get to this next.`);
+    } catch (e: unknown) { log.warn('Discord reply failed (queue notification)', { error: String(e) }); }
+  } else {
+    processQueue(message.channelId, db).catch((e) =>
+      log.error('Queue processing error', { error: String(e) }),
     );
+  }
+}
 
-    // Enqueue.
-    const state = getChannelState(message.channelId);
-    state.queue.push(message);
+/** Kill all active claude -p process groups and clean up. */
+async function shutdownChildren(db: DB): Promise<void> {
+  for (const pid of activeClaudePids) {
+    try {
+      process.kill(-pid, 'SIGTERM');
+      retireProcess(db, pid);
+      log.info('Sent SIGTERM to process group', { pid });
+    } catch (e: unknown) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') log.warn('Shutdown SIGTERM failed', { pid, error: String(e) }); }
+  }
 
-    if (state.busy) {
-      const pos = state.queue.length;
+  if (activeClaudePids.size > 0) {
+    await new Promise((r) => setTimeout(r, 5000));
+    for (const pid of activeClaudePids) {
       try {
-        await message.reply(`📥 Queued (position ${pos}) — I'll get to this next.`);
-      } catch { /* ignore */ }
-    } else {
-      processQueue(message.channelId, db).catch((e) =>
-        log.error('Queue processing error', { error: String(e) }),
-      );
+        process.kill(-pid, 'SIGKILL');
+        log.info('Sent SIGKILL to process group', { pid });
+      } catch (e: unknown) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') log.warn('Shutdown SIGKILL failed', { pid, error: String(e) }); }
     }
-  });
+  }
+}
 
-  // Graceful shutdown — kill all child process groups, then exit.
+/** Wire up SIGTERM/SIGINT/beforeExit handlers for graceful shutdown. */
+function setupShutdownHandlers(
+  db: DB,
+  client: Client,
+  heartbeat: ReturnType<typeof startHeartbeat> | null,
+): void {
+  let shuttingDown = false;
   const shutdown = async () => {
     log.info('Discord bot shutting down', { activeChildren: activeClaudePids.size });
     if (heartbeat) heartbeat.stop();
-
-    // Kill all active claude -p process groups.
-    for (const pid of activeClaudePids) {
-      try {
-        process.kill(-pid, 'SIGTERM'); // Negative PID = kill entire process group
-        retireProcess(db, pid);
-        log.info('Sent SIGTERM to process group', { pid });
-      } catch { /* already dead */ }
-    }
-
-    // Wait up to 5s for children to exit, then SIGKILL survivors.
-    if (activeClaudePids.size > 0) {
-      await new Promise((r) => setTimeout(r, 5000));
-      for (const pid of activeClaudePids) {
-        try {
-          process.kill(-pid, 'SIGKILL');
-          log.info('Sent SIGKILL to process group', { pid });
-        } catch { /* already dead */ }
-      }
-    }
-
-    // Retire self.
+    await shutdownChildren(db);
     retireProcess(db, process.pid);
-
     client.destroy();
     db.close();
     process.exit(0);
   };
-  let shuttingDown = false;
   const handleShutdown = () => {
-    if (shuttingDown) return; // Prevent double-shutdown
+    if (shuttingDown) return;
     shuttingDown = true;
     shutdown().catch((err) => {
       log.error('Shutdown error', { error: String(err) });
@@ -1043,7 +1067,88 @@ async function main(): Promise<void> {
   };
   process.on('SIGTERM', handleShutdown);
   process.on('SIGINT', handleShutdown);
-  process.on('beforeExit', handleShutdown); // OpenHands pattern: catch unhandled exits
+  process.on('beforeExit', handleShutdown);
+}
+
+/** Load config, open DB, register this process. Returns initialized services. */
+function initBotServices(): { token: string; allowedChannels: string[]; db: DB } {
+  const token = process.env.DISCORD_BOT_TOKEN;
+  if (!token) {
+    log.error('DISCORD_BOT_TOKEN not set');
+    process.exit(1);
+  }
+
+  const allowedChannels = (process.env.DISCORD_CHANNEL_IDS || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const projectRoot = process.env.JUSTCLAW_ROOT || resolve(process.cwd());
+  const config = loadConfig(process.env.JUSTCLAW_CONFIG);
+  const dbPath = resolveDbPath(config, projectRoot);
+  const db = new DB(dbPath);
+  _botDb = db;
+
+  registerProcess(db, process.pid, 'discord-bot');
+
+  log.info('Discord bot starting', {
+    projectRoot, dbPath, pid: process.pid,
+    allowedChannels: allowedChannels.length || 'all',
+    baseTimeoutMs: BASE_INACTIVITY_MS,
+    agentTimeoutMs: AGENT_INACTIVITY_MS,
+  });
+
+  return { token, allowedChannels, db };
+}
+
+/** Create Discord client with required intents. */
+function createDiscordClient(): Client {
+  const client = new Client({
+    intents: [
+      GatewayIntentBits.Guilds,
+      GatewayIntentBits.GuildMessages,
+      GatewayIntentBits.MessageContent,
+      GatewayIntentBits.DirectMessages,
+    ],
+  });
+  setupDiscordErrorHandlers(client);
+  return client;
+}
+
+async function main(): Promise<void> {
+  const { token, allowedChannels, db } = initBotServices();
+
+  setupGlobalErrorHandlers();
+
+  let ready = false;
+  const client = createDiscordClient();
+
+  const heartbeatChannelId = process.env.DISCORD_HEARTBEAT_CHANNEL_ID || process.env.DISCORD_CHANNEL_IDS?.split(',')[0]?.trim() || '';
+  const heartbeatIntervalMs = parseInt(process.env.HEARTBEAT_INTERVAL_MS || '', 10) || 5 * 60 * 1000;
+  let heartbeat: ReturnType<typeof startHeartbeat> | null = null;
+
+  client.once(Events.ClientReady, (c) => {
+    log.info('Discord bot connected', { user: c.user.tag });
+    console.log(`Discord bot connected as ${c.user.tag}`);
+    ready = true;
+    if (typeof process.send === 'function') {
+      process.send('ready');
+    }
+    if (heartbeatChannelId) {
+      heartbeat = startHeartbeat({ db, client, channelId: heartbeatChannelId, intervalMs: heartbeatIntervalMs });
+      log.info('Heartbeat enabled', { channelId: heartbeatChannelId, intervalMs: heartbeatIntervalMs });
+    } else {
+      log.warn('Heartbeat disabled — no DISCORD_HEARTBEAT_CHANNEL_ID or DISCORD_CHANNEL_IDS set');
+    }
+  });
+
+  client.on(Events.MessageCreate, (message: Message) => {
+    handleInboundMessage(message, allowedChannels, db, ready).catch((e) =>
+      log.error('Message handler error', { error: String(e) }),
+    );
+  });
+
+  setupShutdownHandlers(db, client, heartbeat);
 
   await client.login(token);
 }
