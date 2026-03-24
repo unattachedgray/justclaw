@@ -12,6 +12,9 @@ import { gatherSignals, type AnticipationSignal } from './discord/anticipation.j
 import { addToWhitelist, removeFromWhitelist, getWhitelist, silenceAlert, unsilenceAlert, getActiveSilences } from './alert-manager.js';
 import { auditProcesses, getSuspiciousProcesses, getSuggestions, registerProcess, retireProcess } from './process-registry.js';
 import { spawnDashboard, readPidFile } from './processes.js';
+import { getLogger } from './logger.js';
+
+const log = getLogger('server');
 
 let _db: DB | null = null;
 let _config: CharlieConfig | null = null;
@@ -71,7 +74,7 @@ export function createServer(opts: {
         try {
           process.kill(dashPid, 'SIGTERM');
           killed.push(dashPid);
-        } catch { /* already dead */ }
+        } catch (e: unknown) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') log.warn('Dashboard kill failed', { dashPid, error: String(e) }); }
       }
       await new Promise((r) => setTimeout(r, 500));
       spawnDashboard();
@@ -277,13 +280,13 @@ export function shutdown(): void {
   if (_db) {
     try {
       retireProcess(_db, process.pid);
-    } catch {
-      /* ignore — DB may already be closing */
+    } catch (e: unknown) {
+      log.debug('Shutdown: retireProcess failed (DB may be closing)', { error: String(e) });
     }
     try {
       _db.close();
-    } catch {
-      /* ignore */
+    } catch (e: unknown) {
+      log.debug('Shutdown: DB close failed', { error: String(e) });
     }
     _db = null;
   }

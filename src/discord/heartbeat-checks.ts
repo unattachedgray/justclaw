@@ -112,7 +112,11 @@ export function checkStaleClaudeProcesses(maxAgeSeconds = 600): CheckResult {
       detail,
       actions: [], // No actions taken — report only
     };
-  } catch {
+  } catch (e: unknown) {
+    // pgrep exits 1 when no matches — only log unexpected errors
+    if ((e as { status?: number }).status !== 1) {
+      log.debug('Stale claude check failed', { error: String(e) });
+    }
     return { ok: true, code: '', detail: 'No claude -p processes', actions: [] };
   }
 }
@@ -147,7 +151,7 @@ export function checkPm2Health(restartThreshold = 5): CheckResult {
           staleCounters.push(app.name);
           try {
             execSync(`pm2 reset ${app.name} 2>/dev/null`, { timeout: 3000 });
-          } catch { /* ignore reset failure */ }
+          } catch (e: unknown) { log.debug('pm2 reset failed', { app: app.name, error: String(e) }); }
         }
       }
     }
@@ -285,7 +289,8 @@ export function checkDocStaleness(db: DB): CheckResult {
       };
     }
     return { ok: true, code: '', detail: 'CLAUDE.md references valid', actions: [] };
-  } catch {
+  } catch (e: unknown) {
+    log.debug('Doc staleness check failed', { error: String(e) });
     return { ok: true, code: '', detail: 'Doc check skipped', actions: [] };
   }
 }
@@ -359,7 +364,7 @@ function updateMemoryBaseline(db: DB, heapMB: number): MemoryBaseline {
 
   let samples: number[] = [];
   if (existing) {
-    try { samples = JSON.parse(existing.value as string); } catch { /* corrupt — reset */ }
+    try { samples = JSON.parse(existing.value as string); } catch (e: unknown) { log.debug('Corrupt memory baseline, resetting', { error: String(e) }); }
   }
 
   samples.push(heapMB);
@@ -462,7 +467,8 @@ export function checkSystemResources(db: DB): CheckResult {
       detail,
       actions: [],
     };
-  } catch {
+  } catch (e: unknown) {
+    log.debug('System status check failed', { error: String(e) });
     return { ok: true, code: '', detail: 'System check failed (non-critical)', actions: [] };
   }
 }

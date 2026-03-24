@@ -398,7 +398,7 @@ export class DB {
   private startMaintenanceTimers(): void {
     // WAL checkpoint every hour — keeps WAL file from growing unbounded.
     this.walCheckpointTimer = setInterval(() => {
-      try { this.conn.pragma('wal_checkpoint(TRUNCATE)'); } catch { /* ignore */ }
+      try { this.conn.pragma('wal_checkpoint(TRUNCATE)'); } catch (e: unknown) { process.stderr.write(`WAL checkpoint failed: ${e}\n`); }
     }, 60 * 60_000);
 
     // Backup every 6 hours.
@@ -413,10 +413,10 @@ export class DB {
       const backupPath = this.dbPath + '.bak';
       this.conn.backup(backupPath).then(() => {
         // backup completed
-      }).catch(() => {
-        // backup failed — non-critical
+      }).catch((e: unknown) => {
+        process.stderr.write(`DB backup failed: ${e}\n`);
       });
-    } catch { /* ignore */ }
+    } catch (e: unknown) { process.stderr.write(`DB backup setup failed: ${e}\n`); }
   }
 
   private initSchema(): void {

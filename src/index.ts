@@ -25,26 +25,28 @@ const PROJECT_ROOT = process.env.JUSTCLAW_ROOT || process.cwd();
 const CONFIG_PATH = process.env.JUSTCLAW_CONFIG || undefined;
 
 function cleanup(): void {
+  const log = getLogger('mcp-server');
   try {
     // Kill dashboard
     const dashPid = readPidFile('dashboard');
     if (dashPid !== null) {
       try {
         process.kill(dashPid, 'SIGTERM');
-      } catch {
-        /* ignore */
+      } catch (e: unknown) {
+        if ((e as NodeJS.ErrnoException).code !== 'ESRCH') {
+          log.warn('Cleanup: dashboard kill failed', { dashPid, error: String(e) });
+        }
       }
     }
-  } catch {
-    /* ignore */
+  } catch (e: unknown) {
+    log.debug('Cleanup: dashboard PID read failed', { error: String(e) });
   }
 
   try {
-    const log = getLogger('mcp-server');
     log.info('MCP server shutting down', { pid: process.pid });
     shutdown();
-  } catch {
-    /* ignore */
+  } catch (e: unknown) {
+    log.debug('Cleanup: shutdown failed', { error: String(e) });
   }
 
   try {
@@ -53,8 +55,8 @@ function cleanup(): void {
     if (currentPid === process.pid) {
       removePidFile('justclaw');
     }
-  } catch {
-    /* ignore */
+  } catch (e: unknown) {
+    log.debug('Cleanup: PID file removal failed', { error: String(e) });
   }
 }
 

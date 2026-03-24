@@ -159,9 +159,9 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<TaskRunResult> {
 
     const timeout = setTimeout(() => {
       log.warn('Scheduled task timed out', { taskId: task.id, pid: child.pid });
-      try { process.kill(-child.pid!, 'SIGTERM'); } catch { /* */ }
+      try { process.kill(-child.pid!, 'SIGTERM'); } catch (e: unknown) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') log.warn('Task SIGTERM failed', { pid: child.pid, error: String(e) }); }
       setTimeout(() => {
-        try { process.kill(-child.pid!, 'SIGKILL'); } catch { /* */ }
+        try { process.kill(-child.pid!, 'SIGKILL'); } catch (e: unknown) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') log.warn('Task SIGKILL failed', { pid: child.pid, error: String(e) }); }
       }, 5000);
     }, TASK_TIMEOUT_MS);
 
@@ -186,7 +186,7 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<TaskRunResult> {
               }
             }
           }
-        } catch { /* not JSON or partial */ }
+        } catch (e: unknown) { log.debug('Task stream JSON parse failed', { error: String(e), line: line.slice(0, 120) }); }
       }
     });
 
@@ -240,7 +240,7 @@ async function resolveChannel(
       try {
         const fb = await client.channels.fetch(fallbackChannelId);
         if (fb && 'send' in fb) return fb as TextChannel;
-      } catch { /* can't reach fallback either */ }
+      } catch (e: unknown) { log.warn('Fallback channel also unreachable', { fallbackChannelId, error: String(e) }); }
     }
   }
   return null;
@@ -351,7 +351,7 @@ export async function checkAndRunScheduledTasks(
           `⚠️ **Scheduled task failed:** ${task.title}\n${String(err).slice(0, 200)}`,
         );
       }
-    } catch { /* can't even post error */ }
+    } catch (e: unknown) { log.warn('Failed to post task error to Discord', { taskId: task.id, error: String(e) }); }
 
     // Revert task to pending so it retries next cycle.
     db.execute(

@@ -150,7 +150,7 @@ export async function escalate(
       pastDiagnoses = '\n## Past escalations for this goal (learn from these)\n' +
         past.map((p) => `- ${p.created_at}: ${p.diagnosis} → ${p.outcome}${p.action_taken ? ` (action: ${p.action_taken})` : ''}`).join('\n');
     }
-  } catch { /* best-effort */ }
+  } catch (e: unknown) { log.debug('Failed to load past escalation diagnoses', { goal, error: String(e) }); }
 
   const prompt = buildEscalationPrompt(goal, issueDetail, context + pastDiagnoses);
 
@@ -199,7 +199,7 @@ export async function escalate(
          ON CONFLICT(key) DO UPDATE SET content = excluded.content, updated_at = datetime('now')`,
         [memoryKey, memoryContent],
       );
-    } catch { /* memory save is best-effort */ }
+    } catch (e: unknown) { log.debug('Escalation memory save failed', { memoryKey, error: String(e) }); }
 
     if (result.resolved) {
       state.consecutiveFailures = 0;

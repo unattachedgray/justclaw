@@ -107,12 +107,16 @@ function getCmdline(pid: number): string | null {
   try {
     // Linux: fast, no subprocess spawn.
     return readFileSync(`/proc/${pid}/cmdline`, 'utf-8').replace(/\0/g, ' ').trim();
-  } catch {
+  } catch (e: unknown) {
     // macOS fallback: /proc doesn't exist, use ps.
     if (process.platform === 'darwin') {
       try {
         return execSync(`ps -p ${pid} -o command=`, { encoding: 'utf-8', timeout: 5000 }).trim() || null;
-      } catch { /* process doesn't exist */ }
+      } catch { /* process doesn't exist — expected for dead PIDs */ }
+    }
+    // ENOENT = process doesn't exist, expected during audit
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      log.debug('getCmdline failed', { pid, error: String(e) });
     }
     return null;
   }
@@ -141,7 +145,7 @@ function getProcessStartTime(pid: number): number | null {
     const bootEpochMs = Date.now() - uptimeSecs * 1000;
     const clkTck = 100; // Almost always 100 on Linux (sysconf(_SC_CLK_TCK))
     return bootEpochMs + (startTicks / clkTck) * 1000;
-  } catch {
+  } catch (e: unknown) {
     // macOS fallback: parse `ps -p <pid> -o lstart=` (e.g. "Mon Mar 21 14:30:00 2026").
     if (process.platform === 'darwin') {
       try {
@@ -149,7 +153,10 @@ function getProcessStartTime(pid: number): number | null {
         if (!lstart) return null;
         const parsed = new Date(lstart).getTime();
         return isNaN(parsed) ? null : parsed;
-      } catch { /* process doesn't exist */ }
+      } catch { /* process doesn't exist — expected for dead PIDs */ }
+    }
+    if ((e as NodeJS.ErrnoException).code !== 'ENOENT') {
+      log.debug('getProcessStartTime failed', { pid, error: String(e) });
     }
     return null;
   }
@@ -232,8 +239,9 @@ export function getSuspiciousProcesses(db: DB): SuspiciousProcess[] {
         continue;
       }
       result.push(proc);
-    } catch {
+    } catch (e: unknown) {
       // Corrupt entry — clean it up.
+      log.debug('Corrupt suspicious entry, removing', { key: row.key, error: String(e) });
       db.execute("DELETE FROM state WHERE key = ?", [row.key]);
     }
   }
@@ -310,7 +318,8 @@ function loadPm2Pids(): Set<number> {
     const apps = JSON.parse(output) as Array<{ pid: number; name: string; pm2_env: { restart_time: number; status: string } }>;
     _pm2PidCache = new Set(apps.filter((a) => a.pid > 0).map((a) => a.pid));
     return _pm2PidCache;
-  } catch {
+  } catch (e: unknown) {
+    log.debug('pm2 jlist failed', { error: String(e) });
     _pm2PidCache = new Set();
     return _pm2PidCache;
   }
@@ -358,7 +367,12 @@ function scanForUnknownProcesses(db: DB): SuspiciousProcess[] {
       const record = trackSuspicious(db, pid, cmdline);
       suspicious.push(record);
     }
-  } catch { /* no matches */ }
+  } catch (e: unknown) {
+    // pgrep exits 1 when no matches — only log unexpected errors
+    if ((e as { status?: number }).status !== 1) {
+      log.debug('pgrep scan failed', { error: String(e) });
+    }
+  }
 
   return suspicious;
 }
@@ -387,7 +401,7 @@ export function detectMalfunction(db: DB): MalfunctionState {
         reasons.push(`${app.name} in error state`);
       }
     }
-  } catch { /* ignore */ }
+  } catch (e: unknown) { log.debug('Malfunction pm2 check failed', { error: String(e) }); }
 
   // Check for many suspicious processes (sign of process leak).
   const suspicious = getSuspiciousProcesses(db);
@@ -463,7 +477,7 @@ export function auditProcesses(db: DB): AuditResult {
       process.kill(proc.pid, 'SIGTERM');
       killed.push(proc.pid);
       log.warn('Killed orphaned retired process', { pid: proc.pid, role: proc.role });
-    } catch { /* already dead */ }
+    } catch (e: unknown) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') log.warn('Kill orphan failed', { pid: proc.pid, error: String(e) }); }
   }
 
   // Check 3: scan for unknown justclaw processes not in our registry.
@@ -493,7 +507,7 @@ export function auditProcesses(db: DB): AuditResult {
             score: proc.safetyScore,
             reason: proc.safetyReason,
           });
-        } catch { /* already dead */ }
+        } catch (e: unknown) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') log.warn('Kill suspicious failed', { pid: proc.pid, error: String(e) }); }
       }
     }
   }
@@ -515,7 +529,7 @@ export function nudgePm2ForStaleProcesses(audit: AuditResult): void {
       try {
         execSync('pm2 restart justclaw-dashboard 2>/dev/null', { timeout: 5000 });
         log.info('Nudged pm2 to restart stale dashboard', { pid: proc.pid });
-      } catch { /* pm2 not available */ }
+      } catch (e: unknown) { log.warn('pm2 restart dashboard failed', { pid: proc.pid, error: String(e) }); }
     }
   }
 }
