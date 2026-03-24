@@ -1,4 +1,4 @@
-# MCP Tools Reference (37 total)
+# MCP Tools Reference (49 total)
 
 ## Memory (6)
 | Tool | Description |
@@ -77,6 +77,37 @@ Learnings are stored in the `learnings` table (schema v8). Categories: `error` (
 Signals gathered: `recent_work` (completed tasks in 48h), `pending_work` (queued tasks), `goals` (active goals), `time_context` (day/hour + historical patterns), `recent_learnings` (latest lessons), `recent_conversations` (last 4h), `velocity` (completion rate vs average).
 
 When run from the heartbeat (every 12th cycle, ~1h), signals are fed to `claude -p` which synthesizes a prediction with confidence level. High-confidence predictions with `create_task` action auto-create tasks tagged `anticipated`.
+
+## Notebooks (6)
+| Tool | Description |
+|------|-------------|
+| `notebook_create` | Ingest a directory into a named notebook. Scans 60+ file types (PDF, DOCX, XLSX, PPTX, HTML, EPUB, images, code, config). Chunks content, indexes with FTS5. Direct mode (<100K tokens) loads all into context; chunked mode uses BM25 retrieval. |
+| `notebook_query` | Search a notebook for content relevant to a query. Returns source-grounded passages with file paths and line numbers. Cite as [source:filename:lines]. |
+| `notebook_sources` | List all source files in a notebook with chunk counts and token estimates. |
+| `notebook_list` | List all notebooks with stats (mode, files, chunks, tokens, path). |
+| `notebook_overview` | Returns source data for notebook guide synthesis. Produce: overview, key topics, suggested questions, per-source summaries. |
+| `notebook_delete` | Delete a notebook and all its indexed chunks. |
+
+Notebooks use a "context-window-first" architecture (like NotebookLM). Small doc sets (<100K tokens) load entirely into Claude's 200K context window. Larger sets use FTS5 BM25 search to retrieve relevant chunks. Supported formats: PDF (unpdf), DOCX (mammoth), XLSX/PPTX/ODP/ODS/ODT/RTF/EPUB (officeparser), HTML (turndown→markdown), SVG (text extraction), images (Claude vision placeholder), plus 40+ text/code/config formats.
+
+Incremental re-indexing tracks file mtimes — only changed files are re-chunked on `notebook_create`. Unsupported formats are logged as learnings for future auto-research.
+
+## Monitors (6)
+| Tool | Description |
+|------|-------------|
+| `monitor_create` | Define a new monitor: source (URL or shell command), extractor (jsonpath/regex/status_code/response_time/body_hash/stdout/exit_code), condition (threshold/change/contains/regex), schedule (cron), notification channel. |
+| `monitor_list` | List all monitors with current status, last value, and check time. |
+| `monitor_check` | Manually trigger a check on one monitor (by name) or all due monitors. Returns extracted value and condition evaluation. |
+| `monitor_history` | View recent check results for a monitor as time-series (value, status, timestamp). |
+| `monitor_update` | Update a monitor's configuration (condition, schedule, channel, enabled state). |
+| `monitor_delete` | Delete a monitor and all its history. |
+
+Monitors run automatically in the heartbeat loop (every 5 min). Each tick, `checkDueMonitors()` queries enabled monitors whose cron schedule says they're due, fetches the source, extracts the value, evaluates the condition, stores in `monitor_history`, and posts alerts to the configured Discord channel. Alerts escalate from ALERT to CRITICAL after 3 consecutive triggers.
+
+**Example monitors:**
+- Bitcoin price: `source_type=url`, `source_config={"url":"https://api.coingecko.com/api/v3/simple/price?ids=bitcoin&vs_currencies=usd"}`, `extractor_type=jsonpath`, `extractor_config={"path":"$.bitcoin.usd"}`, `condition_type=change_percent`, `condition_config={"percent":5}`
+- Website uptime: `source_type=url`, `source_config={"url":"https://example.com"}`, `extractor_type=status_code`, `condition_type=threshold_below`, `condition_config={"value":200}`
+- Disk usage: `source_type=command`, `source_config={"command":"df -h / | awk 'NR==2{print $5}' | tr -d '%'"}`, `extractor_type=stdout`, `condition_type=threshold_above`, `condition_config={"value":90}`
 
 ## System Health (2)
 | Tool | Description |

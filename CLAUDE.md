@@ -76,6 +76,8 @@ Context (5): flush, restore, today, daily_log_add/get — compaction lifecycle
 Conversations (4): log, history, search, summary — FTS5 across channels
 Goals (3): set, list, archive — persistent objectives that drive daily task generation
 Learnings (3): add, search, stats — structured self-improvement from errors and corrections
+Notebooks (6): create, query, sources, list, overview, delete — NotebookLM-style document analysis
+Monitors (6): create, list, check, history, update, delete — metric watching with alerts
 Anticipation (1): anticipate_next — predict what user needs next from signals
 State/Status (3): get, set, status overview
 Process (4): check, restart_self, restart_dashboard, ghost_status
@@ -93,9 +95,43 @@ Use these for all persistence. Every conversation should be logged, decisions sa
 - `task_create/update/list/next/claim/complete` — work queue with priorities and dependencies
 - `context_flush/restore` — save/restore session state before compaction
 - `conversation_log/history/search/summary` — message history across channels
+- `goal_set/list/archive` — persistent objectives that drive daily task generation
+- `learning_add/search/stats` — structured self-improvement from errors and corrections
 - `state_get/set`, `status` — key-value store and system overview
 - `process_check/restart_self/restart_dashboard/ghost_status` — process lifecycle
 - `system_recommendations/escalation_history` — self-healing audit trail
+
+#### Notebooks (`mcp__justclaw__notebook_*`) — Document Analysis
+Point to a folder of documents, query them with source-grounded answers. Like NotebookLM.
+- `notebook_create(name, path)` — ingest a directory. Scans for 60+ file types (PDF, DOCX, XLSX, PPTX, HTML, EPUB, images, code, config). Chunks content, indexes with FTS5.
+- `notebook_query(notebook, query)` — search for relevant content. Small notebooks load entirely into context; large ones use FTS5 BM25 retrieval. **Always cite sources as [source:filename:lines].**
+- `notebook_overview(notebook)` — returns source data for synthesizing: overview, key topics, suggested questions, per-source summaries.
+- `notebook_sources(notebook)` — list indexed files with chunk/token counts.
+- `notebook_list()` — list all notebooks.
+- `notebook_delete(notebook)` — remove a notebook and all chunks.
+
+**When to use:** User shares a folder of docs and wants analysis, Q&A, summaries, or comparisons. User says "read these docs", "what does this codebase do", "summarize these papers". Also useful for ingesting project documentation for grounded answers.
+
+#### Monitors (`mcp__justclaw__monitor_*`) — Metric Watching
+Track any metric (prices, uptime, web changes, custom APIs) with automatic alerting.
+- `monitor_create(name, source_type, source_config, extractor_type, condition_type, ...)` — define what to watch, how to extract the value, when to alert.
+- `monitor_list()` — show all monitors with current status.
+- `monitor_check(name?)` — manually trigger a check (or check all due monitors).
+- `monitor_history(name, limit?)` — view recent check results as time-series.
+- `monitor_update(name, ...)` — change config, enable/disable.
+- `monitor_delete(name)` — remove a monitor and its history.
+
+**Source types:** `url` (HTTP GET/POST with headers) or `command` (shell command).
+**Extractors:** `jsonpath` (e.g., `$.bitcoin.usd`), `regex`, `status_code`, `response_time`, `body_hash`, `stdout`, `exit_code`.
+**Conditions:** `threshold_above/below`, `change_percent`, `change_any`, `contains`, `not_contains`, `regex_match`.
+
+**When to use:** User asks to "watch", "track", "monitor", "alert me when", "notify me if". Examples:
+- "Track Bitcoin price and alert me if it drops 5%" → monitor_create with CoinGecko API + jsonpath + change_percent
+- "Monitor my website uptime" → monitor_create with url + status_code + threshold_below 200
+- "Watch this page for changes" → monitor_create with url + body_hash + change_any
+- "Alert me if disk usage goes above 90%" → monitor_create with command `df -h /` + regex + threshold_above
+
+Monitors run automatically in the heartbeat loop (every 5 min). Alerts post to the monitor's configured Discord channel.
 
 ### File Operations
 Use Read/Glob/Grep for inspection, Edit for targeted changes, Write for new files.
@@ -129,6 +165,10 @@ All commands run in the project root (`/home/julian/temp/justclaw`) by default.
 - **User asks to fix code** → `Read` the file, `Edit` the fix, `npm run build`, `npm test`
 - **User asks to install something** → `npm install`, `pip install`, `apt list`
 - **User asks to research** → `WebSearch`, `WebFetch`, then summarize
+- **User shares a folder of documents** → `notebook_create` to ingest, then `notebook_query` for Q&A, `notebook_overview` for synthesis
+- **User asks to watch/track/monitor something** → `monitor_create` with appropriate source + extractor + condition
+- **User asks about prices, uptime, metrics** → check if a monitor exists (`monitor_list`), create one if not, or `monitor_check` for immediate result
+- **User asks "analyze these docs" or "what do these files say"** → `notebook_create` + `notebook_query` or `notebook_overview`
 - **Always after completing work** → `memory_save` key decisions, `task_complete` if applicable, `conversation_log` the exchange
 
 ## System Safety — Protecting the Ubuntu Host
