@@ -21,7 +21,6 @@ import {
   type TextChannel,
 } from 'discord.js';
 import { spawn as spawnChild } from 'child_process';
-import { existsSync } from 'fs';
 import { resolve } from 'path';
 import { DB } from '../db.js';
 import { loadConfig, resolveDbPath } from '../config.js';
@@ -29,6 +28,16 @@ import { getLogger } from '../logger.js';
 import { registerProcess, retireProcess } from '../process-registry.js';
 import { startHeartbeat } from './heartbeat.js';
 import { DISCORD_MAX_LENGTH, splitMessage } from './discord-utils.js';
+import { findClaudeBin, buildClaudeEnv, buildShellCmd } from '../claude-spawn.js';
+import {
+  buildIdentityPreamble,
+  buildHandoverPrompt,
+  buildFlushReminder,
+  shouldRotateSession,
+  shouldFlushContext,
+  invalidatePreambleCache,
+  COALESCE_WINDOW_MS,
+} from './session-context.js';
 
 const log = getLogger('discord');
 
@@ -38,6 +47,49 @@ const BASE_INACTIVITY_MS = 120_000;    // 2 min base inactivity timeout
 const AGENT_INACTIVITY_MS = 300_000;   // 5 min when sub-agents are running
 const TYPING_INTERVAL_MS = 8_000;
 const PROGRESS_EDIT_INTERVAL_MS = 3_000;
+
+// ---------------------------------------------------------------------------
+// Session persistence helpers
+// ---------------------------------------------------------------------------
+
+/** Load persisted session from DB. */
+function loadSession(db: DB, channelId: string): { sessionId: string; turnCount: number; lastUsedAt: string } | null {
+  const row = db.fetchone(
+    'SELECT session_id, turn_count, last_used_at FROM sessions WHERE channel_id = ?',
+    [channelId],
+  );
+  if (!row) return null;
+  return {
+    sessionId: row.session_id as string,
+    turnCount: row.turn_count as number,
+    lastUsedAt: row.last_used_at as string,
+  };
+}
+
+/** Upsert session after a successful claude -p call. */
+function saveSession(db: DB, channelId: string, sessionId: string, turnIncrement: number): void {
+  const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
+  db.execute(
+    `INSERT INTO sessions (channel_id, session_id, last_used_at, turn_count, created_at)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(channel_id) DO UPDATE SET
+       session_id = excluded.session_id,
+       last_used_at = excluded.last_used_at,
+       turn_count = turn_count + ?`,
+    [channelId, sessionId, now, turnIncrement, now, turnIncrement],
+  );
+}
+
+/** Clear session from DB (on rotation or stale-session retry). */
+function clearSession(db: DB, channelId: string): void {
+  db.execute('DELETE FROM sessions WHERE channel_id = ?', [channelId]);
+}
+
+/** Get session turn count from DB. */
+function getSessionTurnCount(db: DB, channelId: string): number {
+  const row = db.fetchone('SELECT turn_count FROM sessions WHERE channel_id = ?', [channelId]);
+  return row ? (row.turn_count as number) : 0;
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -78,18 +130,6 @@ interface ChannelState {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function findClaudeBin(): string {
-  const home = process.env.HOME || '';
-  for (const p of [
-    home + '/.local/bin/claude',
-    home + '/.claude/local/claude',
-    '/usr/local/bin/claude',
-  ]) {
-    if (existsSync(p)) return p;
-  }
-  return 'claude';
-}
 
 function elapsed(startMs: number): string {
   const ms = Date.now() - startMs;
@@ -417,14 +457,12 @@ async function callClaude(
 
   log.info('Calling claude (streaming)', { bin: claudeBin, channelId, hasSession: !!sessionId });
 
-  const shellCmd = [claudeBin, ...args]
-    .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
-    .join(' ');
+  const shellCmd = buildShellCmd([claudeBin, ...args]);
 
   return new Promise<ClaudeResult>((resolvePromise, reject) => {
     const child = spawnChild('setsid', ['-w', 'bash', '-c', shellCmd], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: (() => { const e: Record<string, string | undefined> = { ...process.env, JUSTCLAW_NO_DASHBOARD: '1' }; delete e.CLAUDECODE; return e; })(),
+      env: buildClaudeEnv(),
     });
 
     // Track child PID for process management.
@@ -475,7 +513,7 @@ async function callClaude(
       lastEditAt = Date.now();
       const text = renderProgress(progress);
       progressMsg.edit(text).catch(() => {});
-    }, 1_500);
+    }, PROGRESS_EDIT_INTERVAL_MS);
 
     // -- Adaptive inactivity timeout --
     const inactivityTimer = setInterval(() => {
@@ -603,6 +641,9 @@ async function callClaude(
 const MAX_CHANNEL_STATES = 100;
 const channelStates = new Map<string, ChannelState & { lastActiveAt: number }>();
 
+/** Reference to the DB set during main() — needed by getChannelState for session restore. */
+let _botDb: DB | null = null;
+
 function getChannelState(channelId: string): ChannelState & { lastActiveAt: number } {
   let state = channelStates.get(channelId);
   if (!state) {
@@ -618,11 +659,30 @@ function getChannelState(channelId: string): ChannelState & { lastActiveAt: numb
       }
       if (oldestId) channelStates.delete(oldestId);
     }
-    state = { sessionId: null, busy: false, queue: [], lastActiveAt: Date.now(), consecutiveFailures: 0, circuitOpenUntil: 0 };
+
+    // Phase 1b: Restore persisted session from DB on first access.
+    let restoredSessionId: string | null = null;
+    if (_botDb) {
+      const persisted = loadSession(_botDb, channelId);
+      if (persisted) {
+        restoredSessionId = persisted.sessionId;
+        log.info('Restored session from DB', { channelId, sessionId: persisted.sessionId, turnCount: persisted.turnCount });
+      }
+    }
+
+    state = { sessionId: restoredSessionId, busy: false, queue: [], lastActiveAt: Date.now(), consecutiveFailures: 0, circuitOpenUntil: 0 };
     channelStates.set(channelId, state);
   }
   state.lastActiveAt = Date.now();
   return state;
+}
+
+/** Coalesce multiple queued messages into one prompt. */
+function coalesceMessages(messages: Message[]): string {
+  if (messages.length === 1) return messages[0].content.trim();
+  return messages
+    .map((m) => `[${m.author.username}]: ${m.content.trim()}`)
+    .join('\n');
 }
 
 async function processQueue(channelId: string, db: DB): Promise<void> {
@@ -642,34 +702,92 @@ async function processQueue(channelId: string, db: DB): Promise<void> {
     return;
   }
 
-  const msg = state.queue.shift();
-  if (!msg) return;
+  // Phase 3: Wait briefly for additional messages to coalesce.
+  // Only sleep if there are already multiple messages queued (rapid-fire).
+  // Don't delay single messages — that adds latency with no benefit.
+  if (state.queue.length > 1) {
+    await new Promise((r) => setTimeout(r, COALESCE_WINDOW_MS));
+  }
+
+  // Drain all queued messages into a single batch.
+  const messages = state.queue.splice(0, state.queue.length);
+  if (messages.length === 0) return;
+  const primaryMsg = messages[0];
 
   state.busy = true;
 
   try {
+    // Notify about coalescing if multiple messages were batched.
+    if (messages.length > 1) {
+      log.info('Coalesced messages', { channelId, count: messages.length });
+    }
+
+    // Phase 5: Check if session needs rotation before processing.
+    const persisted = loadSession(db, channelId);
+    const rotationCheck = shouldRotateSession(
+      persisted?.lastUsedAt ?? null,
+      persisted?.turnCount ?? 0,
+    );
+
+    if (rotationCheck.rotate && state.sessionId) {
+      log.info('Session rotation triggered', { channelId, reason: rotationCheck.reason, turnCount: persisted?.turnCount });
+
+      // Send handover prompt to current session to flush context.
+      try {
+        const handoverResult = await callClaude(
+          buildHandoverPrompt(), channelId, state.sessionId, null, primaryMsg, db,
+        );
+        // Log the handover response.
+        if (handoverResult.reply) {
+          db.execute(
+            'INSERT INTO conversations (channel, sender, message, is_from_charlie, created_at) VALUES (?, ?, ?, 1, ?)',
+            ['discord', 'charlie', `[handover] ${handoverResult.reply.slice(0, 500)}`, db.now()],
+          );
+        }
+      } catch (err) {
+        log.warn('Handover prompt failed, rotating anyway', { error: String(err) });
+      }
+
+      // Clear the session — next call starts fresh.
+      state.sessionId = null;
+      clearSession(db, channelId);
+      invalidatePreambleCache(channelId);
+    }
+
+    // Phase 2: Build identity preamble + coalesced user message.
+    const userContent = coalesceMessages(messages);
+    const preamble = buildIdentityPreamble(db, channelId);
+    const fullPrompt = preamble + '\n---\n' + userContent;
+
     // Send initial progress message.
     let progressMsg: Message | null = null;
     try {
-      progressMsg = await msg.reply('📋 **Working on your request**\n⏳ Thinking…');
+      progressMsg = await primaryMsg.reply('📋 **Working on your request**\n⏳ Thinking…');
     } catch {
       /* ignore */
     }
 
     let result: ClaudeResult;
     try {
-      result = await callClaude(msg.content.trim(), channelId, state.sessionId, progressMsg, msg, db);
+      result = await callClaude(fullPrompt, channelId, state.sessionId, progressMsg, primaryMsg, db);
     } catch (firstErr) {
       // If we had a session and it failed, retry without session (stale session recovery).
       if (state.sessionId) {
         log.warn('Retrying without session (stale session recovery)', { channelId });
         state.sessionId = null;
-        result = await callClaude(msg.content.trim(), channelId, null, progressMsg, msg, db);
+        clearSession(db, channelId);
+      invalidatePreambleCache(channelId);
+        result = await callClaude(fullPrompt, channelId, null, progressMsg, primaryMsg, db);
       } else {
         throw firstErr;
       }
     }
     state.sessionId = result.sessionId;
+
+    // Phase 1b: Persist session to DB.
+    if (result.sessionId) {
+      saveSession(db, channelId, result.sessionId, 1);
+    }
 
     // Circuit breaker: success resets failure count.
     state.consecutiveFailures = 0;
@@ -687,16 +805,33 @@ async function processQueue(channelId: string, db: DB): Promise<void> {
       try {
         await progressMsg.edit(chunks[0]);
         for (let i = 1; i < chunks.length; i++) {
-          await (msg.channel as TextChannel).send(chunks[i]);
+          await (primaryMsg.channel as TextChannel).send(chunks[i]);
         }
       } catch {
         for (const chunk of chunks) {
-          await (msg.channel as TextChannel).send(chunk);
+          await (primaryMsg.channel as TextChannel).send(chunk);
         }
       }
     } else {
       for (const chunk of chunks) {
-        await msg.reply(chunk);
+        await primaryMsg.reply(chunk);
+      }
+    }
+
+    // Phase 4: Check if we should trigger a pre-compaction flush.
+    const currentTurnCount = getSessionTurnCount(db, channelId);
+    if (shouldFlushContext(currentTurnCount) && result.sessionId) {
+      log.info('Triggering pre-compaction flush', { channelId, turnCount: currentTurnCount });
+      try {
+        const flushResult = await callClaude(
+          buildFlushReminder(), channelId, result.sessionId, null, primaryMsg, db,
+        );
+        if (flushResult.sessionId) {
+          saveSession(db, channelId, flushResult.sessionId, 1);
+          state.sessionId = flushResult.sessionId;
+        }
+      } catch (err) {
+        log.warn('Pre-compaction flush failed', { error: String(err) });
       }
     }
   } catch (err) {
@@ -710,11 +845,11 @@ async function processQueue(channelId: string, db: DB): Promise<void> {
       state.circuitOpenUntil = Date.now() + cooldownMin * 60_000;
       log.warn('Circuit breaker OPEN', { channelId, failures: state.consecutiveFailures, cooldownMin });
       try {
-        await msg.reply(`⏸️ Claude has failed ${state.consecutiveFailures} times in a row. Pausing for ${cooldownMin}min.`);
+        await primaryMsg.reply(`⏸️ Claude has failed ${state.consecutiveFailures} times in a row. Pausing for ${cooldownMin}min.`);
       } catch { /* ignore */ }
     } else {
       try {
-        await msg.reply(`⚠️ Error: ${String(err).slice(0, 150)}`);
+        await primaryMsg.reply(`⚠️ Error: ${String(err).slice(0, 150)}`);
       } catch { /* ignore */ }
     }
   } finally {
@@ -747,6 +882,7 @@ async function main(): Promise<void> {
   const config = loadConfig(process.env.JUSTCLAW_CONFIG);
   const dbPath = resolveDbPath(config, projectRoot);
   const db = new DB(dbPath);
+  _botDb = db; // Make DB available to getChannelState for session restore.
 
   // Register this bot process in the registry.
   registerProcess(db, process.pid, 'discord-bot');

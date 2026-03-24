@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 
-const SCHEMA_VERSION = 9;
+const SCHEMA_VERSION = 11;
 
 const SCHEMA_SQL = `
 -- Memories: durable facts, preferences, decisions, context.
@@ -62,7 +62,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     due_at        TEXT,
     completed_at  TEXT,
     recurrence    TEXT,
-    recurrence_source_id INTEGER
+    recurrence_source_id INTEGER,
+    auto_execute  INTEGER NOT NULL DEFAULT 0,
+    target_channel TEXT   DEFAULT NULL,
+    session_id    TEXT    DEFAULT NULL
 );
 
 -- Context snapshots: saved before compaction or at session end.
@@ -85,6 +88,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     created_at      TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at);
+
 -- FTS5 index for conversation content search.
 CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
     sender, message,
@@ -102,6 +107,9 @@ CREATE TRIGGER IF NOT EXISTS conversations_ad AFTER DELETE ON conversations BEGI
     VALUES ('delete', old.id, old.sender, old.message);
 END;
 
+CREATE INDEX IF NOT EXISTS idx_tasks_status_priority ON tasks(status, priority) WHERE status IN ('pending', 'active');
+CREATE INDEX IF NOT EXISTS idx_tasks_due_at ON tasks(due_at) WHERE status = 'pending' AND recurrence IS NOT NULL;
+
 -- Daily activity log: append-only journal.
 CREATE TABLE IF NOT EXISTS daily_log (
     id          INTEGER PRIMARY KEY,
@@ -111,11 +119,95 @@ CREATE TABLE IF NOT EXISTS daily_log (
     created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE INDEX IF NOT EXISTS idx_daily_log_date ON daily_log(date);
+
 -- Key-value state store for arbitrary persistent state.
 CREATE TABLE IF NOT EXISTS state (
     key        TEXT PRIMARY KEY,
     value      TEXT NOT NULL,
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Process registry: tracks all PIDs we spawn or manage.
+CREATE TABLE IF NOT EXISTS process_registry (
+    id          INTEGER PRIMARY KEY,
+    pid         INTEGER NOT NULL,
+    role        TEXT    NOT NULL,
+    status      TEXT    NOT NULL DEFAULT 'active',
+    started_at  TEXT    NOT NULL DEFAULT (datetime('now')),
+    retired_at  TEXT,
+    meta        TEXT    NOT NULL DEFAULT '',
+    input_tokens  INTEGER NOT NULL DEFAULT 0,
+    output_tokens INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_process_registry_status ON process_registry(status);
+CREATE INDEX IF NOT EXISTS idx_process_registry_pid ON process_registry(pid);
+
+-- Playbook: learned remediation patterns from LLM escalation.
+CREATE TABLE IF NOT EXISTS playbook (
+    id               INTEGER PRIMARY KEY,
+    goal             TEXT    NOT NULL,
+    pattern          TEXT    NOT NULL,
+    action           TEXT    NOT NULL,
+    confidence       REAL    NOT NULL DEFAULT 0.5,
+    source           TEXT    NOT NULL DEFAULT 'learned',
+    times_used       INTEGER NOT NULL DEFAULT 0,
+    times_succeeded  INTEGER NOT NULL DEFAULT 0,
+    learned_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+    last_used        TEXT
+);
+
+-- Escalation log: tracks LLM escalation calls and their outcomes.
+CREATE TABLE IF NOT EXISTS escalation_log (
+    id              INTEGER PRIMARY KEY,
+    goal            TEXT    NOT NULL,
+    trigger_detail  TEXT    NOT NULL,
+    diagnosis       TEXT,
+    action_taken    TEXT,
+    recommendation  TEXT,
+    outcome         TEXT    NOT NULL DEFAULT 'pending',
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    resolved_at     TEXT
+);
+
+-- Alert management: silences and whitelists.
+CREATE TABLE IF NOT EXISTS alert_silences (
+    id          INTEGER PRIMARY KEY,
+    matcher     TEXT    NOT NULL,
+    reason      TEXT    NOT NULL DEFAULT '',
+    type        TEXT    NOT NULL DEFAULT 'silence',
+    expires_at  TEXT,
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE TABLE IF NOT EXISTS process_whitelist (
+    id          INTEGER PRIMARY KEY,
+    pattern     TEXT    NOT NULL UNIQUE,
+    reason      TEXT    NOT NULL DEFAULT '',
+    source      TEXT    NOT NULL DEFAULT 'user',
+    created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Learnings: structured self-improvement from errors, corrections, discoveries.
+CREATE TABLE IF NOT EXISTS learnings (
+    id            INTEGER PRIMARY KEY,
+    category      TEXT    NOT NULL,
+    trigger       TEXT    NOT NULL,
+    lesson        TEXT    NOT NULL,
+    area          TEXT,
+    applied_count INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_learnings_category ON learnings(category);
+CREATE INDEX IF NOT EXISTS idx_learnings_area ON learnings(area);
+
+-- Session persistence: session IDs survive bot restarts for --resume.
+CREATE TABLE IF NOT EXISTS sessions (
+    channel_id    TEXT PRIMARY KEY,
+    session_id    TEXT NOT NULL,
+    created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+    last_used_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    turn_count    INTEGER NOT NULL DEFAULT 0,
+    context_hint  TEXT NOT NULL DEFAULT 'fresh'
 );
 
 -- Schema version tracking.
@@ -241,6 +333,26 @@ const MIGRATIONS: Record<number, string[]> = {
     // Per-task Discord channel routing: scheduled tasks post results to this channel.
     // Falls back to heartbeat channel if NULL.
     "ALTER TABLE tasks ADD COLUMN target_channel TEXT DEFAULT NULL",
+  ],
+  10: [
+    // Session persistence: survives bot restarts so --resume works across sessions.
+    `CREATE TABLE IF NOT EXISTS sessions (
+        channel_id    TEXT PRIMARY KEY,
+        session_id    TEXT NOT NULL,
+        created_at    TEXT NOT NULL DEFAULT (datetime('now')),
+        last_used_at  TEXT NOT NULL DEFAULT (datetime('now')),
+        turn_count    INTEGER NOT NULL DEFAULT 0,
+        context_hint  TEXT NOT NULL DEFAULT 'fresh'
+    )`,
+    // Scheduled task session continuity: optional --resume for recurring tasks.
+    "ALTER TABLE tasks ADD COLUMN session_id TEXT DEFAULT NULL",
+  ],
+  11: [
+    // Performance indexes for common query patterns.
+    "CREATE INDEX IF NOT EXISTS idx_conversations_created_at ON conversations(created_at)",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_status_priority ON tasks(status, priority) WHERE status IN ('pending', 'active')",
+    "CREATE INDEX IF NOT EXISTS idx_tasks_due_at ON tasks(due_at) WHERE status = 'pending' AND recurrence IS NOT NULL",
+    "CREATE INDEX IF NOT EXISTS idx_daily_log_date ON daily_log(date)",
   ],
 };
 

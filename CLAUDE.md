@@ -18,7 +18,7 @@ SQLite-backed MCP server (30 tools) + Discord bot + deterministic heartbeat + se
 | **Node.js** | v22+ |
 | **Discord channel** | Private server, single-user (Julian) |
 | **PM2 services** | `justclaw-dashboard` (Hono :8787), `justclaw-discord` (bot + heartbeat) |
-| **Database** | `data/charlie.db` (SQLite, WAL, FTS5, schema v9) |
+| **Database** | `data/charlie.db` (SQLite, WAL, FTS5, schema v10) |
 | **Debug mode** | Set `JUSTCLAW_DEBUG=1` in `.env` to suppress LLM escalation |
 
 ## Architecture
@@ -26,7 +26,7 @@ SQLite-backed MCP server (30 tools) + Discord bot + deterministic heartbeat + se
 ```
 Claude Code CLI → justclaw MCP Server (stdio, 30 tools)
                          ↓
-              SQLite (data/charlie.db, WAL, FTS5, schema v9)
+              SQLite (data/charlie.db, WAL, FTS5, schema v10)
                     ↓         ↓              ↓
               Dashboard   Discord Bot    Heartbeat (deterministic)
               Hono:8787   discord.js     9 checks, <1s, $0/cycle
@@ -49,7 +49,7 @@ pm2 save                           # Persist for reboot
 |------|---------|
 | `src/index.ts` | MCP server entry: PID mgmt, signals, stdio transport |
 | `src/server.ts` | Registers all 30 MCP tools |
-| `src/db.ts` | SQLite schema v9, FTS5, migrations, integrity check, backup |
+| `src/db.ts` | SQLite schema v10, FTS5, migrations, integrity check, backup |
 | `src/process-registry.ts` | PID tracking, safety scoring, suspicious detection, malfunction escalation |
 | `src/discord/bot.ts` | Discord bot: streaming progress, per-channel queue, circuit breaker, graceful shutdown |
 | `src/discord/heartbeat.ts` | Heartbeat orchestrator: deterministic checks, dedup, presence flash, escalation |
@@ -58,6 +58,7 @@ pm2 save                           # Persist for reboot
 | `src/discord/anticipation.ts` | Predicts what user needs next: signal gathering + LLM synthesis |
 | `src/discord/discord-utils.ts` | Shared Discord utilities: code-block-aware message splitting |
 | `src/discord/scheduled-tasks.ts` | Executes due recurring tasks via claude -p, per-task channel routing |
+| `src/discord/session-context.ts` | Session continuity: identity preamble, rotation logic, flush thresholds |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
 | `.mcp.json` | MCP server config — **must include `JUSTCLAW_NO_DASHBOARD: "1"`** |
 
@@ -184,6 +185,21 @@ Streaming progress display, per-channel queue, circuit breaker (3 failures → c
 
 Full details: @docs/DISCORD-BOT.md
 
+## Session Continuity ("Always-On Agent")
+
+Six-layer system that makes every session feel like the same agent waking up. Works WITH Claude Code's native context compaction, not against it.
+
+| Layer | What it does | File |
+|-------|-------------|------|
+| **Session persistence** | Session IDs stored in `sessions` table, survive bot restarts. `--resume` works across sessions. | `src/discord/bot.ts`, `src/db.ts` (schema v10) |
+| **Identity preamble** | Every `claude -p` prompt is prepended with: last context snapshot, active goals, pending tasks, today's activity, recent learnings, time since last interaction. | `src/discord/session-context.ts` → `buildIdentityPreamble()` |
+| **Message coalescing** | Multiple queued messages batched into one prompt after 1s window. Reduces unnecessary turns. | `src/discord/bot.ts` → `coalesceMessages()`, `COALESCE_WINDOW_MS` |
+| **Pre-compaction flush** | At 20+ turns, auto-sends a reminder to call `context_flush`. Safety net alongside Claude Code's native compaction. | `src/discord/session-context.ts` → `shouldFlushContext()`, `SESSION_TURN_FLUSH_THRESHOLD` |
+| **Session rotation** | At 30+ turns or on a new day, sends handover prompt to flush context, then starts fresh session with full identity preamble. | `src/discord/session-context.ts` → `shouldRotateSession()`, `SESSION_TURN_ROTATE_THRESHOLD` |
+| **Scheduled task sessions** | Recurring tasks can use `--resume` via `session_id` column on tasks table. Session inherited across recurrence chain. | `src/discord/scheduled-tasks.ts`, tasks table |
+
+**Design rationale**: Claude Code already handles context compaction well. Our layers add *durable persistence* (to SQLite) and *identity injection* so that even across compaction, restart, or rotation, the agent knows who it is and what it was doing. The flush is a safety net, not a replacement.
+
 ## Heartbeat (deterministic, $0)
 
 9 checks every 5min: process audit, stale claude scan, pm2 health, unanswered messages, system status, stuck tasks, doc staleness, event loop, memory usage. Persistent ALERTs escalate to Claude after 3 cycles. Healing verified at 2min.
@@ -214,6 +230,11 @@ Full details: @docs/DISCORD-BOT.md
 
 | Skill | Purpose |
 |-------|---------|
+| `/dev <mode> <desc>` | **Structured dev lifecycle** — 7-phase process (think/plan/build/review/test/ship/reflect). Modes: `new`, `fix`, `refactor`, `debug`. |
+| `/dev-think <desc>` | Phase 1 only — investigate and understand the problem before committing to a solution |
+| `/dev-plan <desc>` | Phase 2 only — design the solution (file changes, test strategy, risk assessment) |
+| `/dev-review [files]` | Phase 4 only — self-review changes using Code Reviewer checklist |
+| `/dev-ship [msg]` | Phases 5-7 — test, commit, and reflect on completed work |
 | `/improve <topic>` | Research better practices from popular projects, implement |
 | `/retrospective` | Review recent work, extract learnings, create ADRs |
 | `/audit <area>` | Deep code audit for bugs and architecture issues |

@@ -17,10 +17,9 @@
  *   - All actions logged to escalation_log
  */
 
-import { spawn as spawnChild } from 'child_process';
-import { existsSync } from 'fs';
 import type { DB } from '../db.js';
 import { getLogger } from '../logger.js';
+import { spawnClaudeP } from '../claude-spawn.js';
 
 const log = getLogger('escalation');
 
@@ -105,18 +104,6 @@ export function shouldEscalate(goal: string): { should: boolean; reason: string 
 // Claude escalation call
 // ---------------------------------------------------------------------------
 
-function findClaudeBin(): string {
-  const home = process.env.HOME || '';
-  for (const p of [
-    home + '/.local/bin/claude',
-    home + '/.claude/local/claude',
-    '/usr/local/bin/claude',
-  ]) {
-    if (existsSync(p)) return p;
-  }
-  return 'claude';
-}
-
 interface EscalationResult {
   diagnosis: string;
   recommendation: string;
@@ -168,12 +155,9 @@ export async function escalate(
   const prompt = buildEscalationPrompt(goal, issueDetail, context + pastDiagnoses);
 
   try {
-    const claudeBin = findClaudeBin();
-    const args = [
-      '-p', prompt,
-      '--output-format', 'json',
-      '--allowedTools',
-      [
+    const response = await spawnClaudeP({
+      prompt,
+      allowedTools: [
         'mcp__justclaw__*',
         'Bash(pm2:*)', 'Bash(ps:*)', 'Bash(journalctl:*)',
         'Bash(cat:*)', 'Bash(tail:*)', 'Bash(head:*)', 'Bash(grep:*)',
@@ -181,46 +165,12 @@ export async function escalate(
         'Bash(ls:*)', 'Bash(npm:*)', 'Bash(node:*)', 'Bash(sqlite3:*)',
         'Bash(curl:*)', 'Bash(git:*)',
         'Read', 'Glob', 'Grep',
-      ].join(' '),
-    ];
-
-    const shellCmd = [claudeBin, ...args]
-      .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
-      .join(' ');
-
-    const response = await new Promise<string>((resolve, reject) => {
-      const child = spawnChild('setsid', ['-w', 'bash', '-c', shellCmd], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-          env: (() => { const e: Record<string, string | undefined> = { ...process.env, JUSTCLAW_NO_DASHBOARD: '1' }; delete e.CLAUDECODE; return e; })(),
-      });
-
-      let stdout = '';
-      const timeout = setTimeout(() => {
-        try { child.kill('SIGTERM'); } catch { /* */ }
-        reject(new Error('Escalation timed out (120s)'));
-      }, 120_000);
-
-      child.stdout!.on('data', (c: Buffer) => { stdout += c.toString(); });
-      child.on('close', (code) => {
-        clearTimeout(timeout);
-        if (code !== 0) reject(new Error(`claude exited with code ${code}`));
-        else resolve(stdout);
-      });
-      child.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
+      ],
+      timeoutMs: 120_000,
     });
 
-    // Parse response.
-    let resultText = response.trim();
-    try {
-      const parsed = JSON.parse(resultText);
-      resultText = parsed.result || resultText;
-    } catch { /* use raw */ }
-
     // Extract structured sections from Claude's response.
-    const result = parseEscalationResponse(resultText);
+    const result = parseEscalationResponse(response.text);
 
     // Update escalation log.
     db.execute(

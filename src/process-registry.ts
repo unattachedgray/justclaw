@@ -22,6 +22,7 @@ import { readFileSync } from 'fs';
 import { execSync } from 'child_process';
 import type { DB } from './db.js';
 import { getLogger } from './logger.js';
+import { isPidAlive } from './processes.js';
 
 const log = getLogger('process-registry');
 
@@ -101,15 +102,6 @@ export function getRetiredProcesses(db: DB): RegisteredProcess[] {
 // ---------------------------------------------------------------------------
 // Process identity
 // ---------------------------------------------------------------------------
-
-function isPidAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch {
-    return false;
-  }
-}
 
 function getCmdline(pid: number): string | null {
   try {

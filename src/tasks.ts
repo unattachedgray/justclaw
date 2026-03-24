@@ -36,9 +36,9 @@ function spawnNextRecurrence(db: DB, task: Record<string, unknown>): Record<stri
   const now = db.now();
 
   const result = db.execute(
-    `INSERT INTO tasks (title, description, priority, tags, due_at, depends_on, recurrence, recurrence_source_id, target_channel, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [task.title, task.description || '', task.priority || 5, task.tags || '', nextDue, '', recurrence, sourceId, task.target_channel || null, now, now],
+    `INSERT INTO tasks (title, description, priority, tags, due_at, depends_on, recurrence, recurrence_source_id, target_channel, session_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [task.title, task.description || '', task.priority || 5, task.tags || '', nextDue, '', recurrence, sourceId, task.target_channel || null, task.session_id || null, now, now],
   );
   return { id: result.lastInsertRowid, title: task.title, due_at: nextDue, recurrence, recurrence_source_id: sourceId };
 }
@@ -177,23 +177,21 @@ export function registerTaskTools(server: McpServer, db: DB): void {
 **Returns:** The task object, or "No pending tasks." if the queue is empty.`,
     {},
     async () => {
-      // Find pending tasks, excluding those with unfinished dependencies
+      // Find pending/active tasks and incomplete task IDs in two queries (avoids N+1).
       const pending = db.fetchall(
         "SELECT id, title, description, status, priority, tags, due_at, depends_on, assigned_to FROM tasks WHERE status IN ('pending', 'active') ORDER BY priority ASC, created_at ASC",
+      );
+      // Pre-load all non-completed task IDs for dependency checking.
+      const incompleteIds = new Set(
+        db.fetchall("SELECT id FROM tasks WHERE status != 'completed'")
+          .map((r) => String(r.id)),
       );
 
       for (const task of pending) {
         const deps = String(task.depends_on || '').trim();
         if (deps) {
           const depIds = deps.split(',').map((d) => d.trim()).filter(Boolean);
-          if (depIds.length > 0) {
-            const placeholders = depIds.map(() => '?').join(',');
-            const incomplete = db.fetchone(
-              `SELECT COUNT(*) as count FROM tasks WHERE id IN (${placeholders}) AND status != 'completed'`,
-              depIds,
-            );
-            if (incomplete && (incomplete.count as number) > 0) continue;
-          }
+          if (depIds.some((id) => incompleteIds.has(id))) continue;
         }
         // This task is ready
         db.execute(

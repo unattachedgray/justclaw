@@ -1,4 +1,4 @@
-# Database Schema (v9)
+# Database Schema (v10)
 
 SQLite with WAL mode, FTS5. Schema defined in `src/db.ts` with automatic migration.
 
@@ -14,16 +14,28 @@ SQLite with WAL mode, FTS5. Schema defined in `src/db.ts` with automatic migrati
 | `playbook` | goal, pattern, action, confidence, source, times_used | v4: learned remediation patterns |
 | `escalation_log` | goal, trigger_detail, diagnosis, action_taken, recommendation, outcome | v4: escalation audit trail |
 | `learnings` | category, trigger, lesson, area, applied_count | v8: structured self-improvement from errors/corrections |
+| `sessions` | channel_id (PK), session_id, turn_count, last_used_at, context_hint | v10: persistent session IDs for `--resume` across restarts |
 | `daily_log` | date, entry, category | Append-only activity journal |
 | `state` | key (PK), value | KV store + suspicious_pid_* entries |
-| `schema_meta` | key (PK), value | Version tracking (currently v9) |
+| `schema_meta` | key (PK), value | Version tracking (currently v10) |
 
-### Tasks Extra Columns (v9)
+### Sessions Table (v10)
+| Column | Type | Default | Notes |
+|--------|------|---------|-------|
+| `channel_id` | TEXT | (PK) | Discord channel ID — one session per channel |
+| `session_id` | TEXT | NOT NULL | Claude Code session ID for `--resume` |
+| `created_at` | TEXT | now | When the session was first established |
+| `last_used_at` | TEXT | now | Updated after each successful `callClaude` |
+| `turn_count` | INTEGER | 0 | Incremented each turn; drives flush (20) and rotation (30) thresholds |
+| `context_hint` | TEXT | 'fresh' | Session state hint: fresh, warm, hot |
+
+### Tasks Extra Columns (v9-v10)
 | Column | Type | Default | Notes |
 |--------|------|---------|-------|
 | `auto_execute` | INTEGER | 0 | When 1, task can be auto-executed by scheduled task runner |
 | `recurrence` | TEXT | NULL | Cron-style recurrence (e.g., `cron:0 8 * * 1-5`) |
 | `target_channel` | TEXT | NULL | Discord channel ID for posting scheduled task results. Falls back to heartbeat channel if NULL. Inherited by spawned recurrence instances. |
+| `session_id` | TEXT | NULL | v10: Claude Code session ID for scheduled task `--resume`. Inherited by spawned recurrence instances. |
 
 ## Self-Healing Features
 

@@ -11,12 +11,13 @@
  */
 
 import { spawn as spawnChild } from 'child_process';
-import { existsSync } from 'fs';
 import type { Client, TextChannel } from 'discord.js';
 import type { DB } from '../db.js';
 import { getLogger } from '../logger.js';
 import { registerProcess, retireProcess } from '../process-registry.js';
 import { DISCORD_MAX_LENGTH, splitMessage } from './discord-utils.js';
+import { buildTaskPreamble } from './session-context.js';
+import { findClaudeBin, buildClaudeEnv, buildShellCmd } from '../claude-spawn.js';
 
 const log = getLogger('scheduled-tasks');
 const TASK_TIMEOUT_MS = 5 * 60_000; // 5 min max per scheduled task
@@ -33,25 +34,14 @@ interface DueTask {
   recurrence: string;
   due_at: string;
   target_channel: string | null;
-}
-
-function findClaudeBin(): string {
-  const home = process.env.HOME || '';
-  for (const p of [
-    home + '/.local/bin/claude',
-    home + '/.claude/local/claude',
-    '/usr/local/bin/claude',
-  ]) {
-    if (existsSync(p)) return p;
-  }
-  return 'claude';
+  session_id: string | null;
 }
 
 /** Query for recurring tasks that are past due and still pending. */
 function getDueTasks(db: DB): DueTask[] {
   const now = db.now();
   const rows = db.fetchall(
-    `SELECT id, title, description, priority, tags, recurrence, due_at, target_channel
+    `SELECT id, title, description, priority, tags, recurrence, due_at, target_channel, session_id
      FROM tasks
      WHERE recurrence IS NOT NULL
        AND due_at IS NOT NULL
@@ -70,6 +60,7 @@ function getDueTasks(db: DB): DueTask[] {
     recurrence: r.recurrence as string,
     due_at: r.due_at as string,
     target_channel: (r.target_channel as string) || null,
+    session_id: (r.session_id as string) || null,
   }));
 }
 
@@ -92,14 +83,24 @@ function getAutoExecuteTasks(db: DB): DueTask[] {
     recurrence: (r.recurrence as string) || '',
     due_at: (r.due_at as string) || '',
     target_channel: (r.target_channel as string) || null,
+    session_id: (r.session_id as string) || null,
   }));
 }
 
+interface TaskRunResult {
+  text: string;
+  sessionId: string | null;
+}
+
 /** Spawn claude -p with a task prompt and collect the result. */
-function runClaudeForTask(db: DB, task: DueTask): Promise<string> {
+function runClaudeForTask(db: DB, task: DueTask): Promise<TaskRunResult> {
   const claudeBin = findClaudeBin();
 
+  // Phase 2: Inject task preamble for context continuity.
+  const preamble = buildTaskPreamble(db);
   const prompt = [
+    preamble,
+    '---',
     `You are executing a scheduled task: "${task.title}"`,
     '',
     'Instructions:',
@@ -113,6 +114,7 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<string> {
   ].join('\n');
 
   const args = [
+    claudeBin,
     '-p', prompt,
     '--output-format', 'stream-json',
     '--verbose',
@@ -129,18 +131,17 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<string> {
     ].join(' '),
   ];
 
-  const shellCmd = [claudeBin, ...args]
-    .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
-    .join(' ');
+  // Phase 6: Use --resume if the task has a persisted session.
+  if (task.session_id) {
+    args.push('--resume', task.session_id);
+  }
 
-  return new Promise<string>((resolve, reject) => {
+  const shellCmd = buildShellCmd(args);
+
+  return new Promise<TaskRunResult>((resolve, reject) => {
     const child = spawnChild('setsid', ['-w', 'bash', '-c', shellCmd], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: (() => {
-        const e: Record<string, string | undefined> = { ...process.env, JUSTCLAW_NO_DASHBOARD: '1' };
-        delete e.CLAUDECODE;
-        return e;
-      })(),
+      env: buildClaudeEnv(),
     });
 
     if (child.pid == null) {
@@ -153,6 +154,7 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<string> {
 
     let buffer = '';
     let finalResult = '';
+    let newSessionId: string | null = task.session_id;
     let stderrBuf = '';
 
     const timeout = setTimeout(() => {
@@ -172,8 +174,10 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<string> {
         if (!line.trim()) continue;
         try {
           const event = JSON.parse(line);
-          if (event.type === 'result' && event.result) {
-            finalResult = event.result;
+          if (event.type === 'result') {
+            if (event.result) finalResult = event.result;
+            // Capture session_id for continuity.
+            if (event.session_id) newSessionId = event.session_id;
           } else if (event.type === 'assistant' && event.message?.content) {
             // Collect text blocks from assistant messages.
             for (const block of event.message.content) {
@@ -196,10 +200,10 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<string> {
 
       if (code !== 0) {
         log.error('Scheduled task claude -p failed', { code, taskId: task.id, stderr: stderrBuf.slice(-300) });
-        resolve(`⚠️ Scheduled task "${task.title}" failed (exit ${code}): ${stderrBuf.slice(-200)}`);
+        resolve({ text: `⚠️ Scheduled task "${task.title}" failed (exit ${code}): ${stderrBuf.slice(-200)}`, sessionId: newSessionId });
       } else {
         log.info('Scheduled task completed', { taskId: task.id });
-        resolve(finalResult || '(no output)');
+        resolve({ text: finalResult || '(no output)', sessionId: newSessionId });
       }
     });
 
@@ -277,8 +281,13 @@ export async function checkAndRunScheduledTasks(
           if (textChannel) {
             await textChannel.send(`🤖 **Auto-executing task:** ${task.title}`);
             const result = await runClaudeForTask(db, task);
-            for (const chunk of splitMessage(result)) {
+            for (const chunk of splitMessage(result.text)) {
               await textChannel.send(chunk);
+            }
+            // Phase 6: Persist session for task continuity.
+            if (result.sessionId) {
+              db.execute('UPDATE tasks SET session_id = ? WHERE id = ? OR (recurrence_source_id IS NOT NULL AND recurrence_source_id = ?)',
+                [result.sessionId, task.id, task.id]);
             }
           }
         } catch (err) {
@@ -315,15 +324,21 @@ export async function checkAndRunScheduledTasks(
     const result = await runClaudeForTask(db, task);
 
     // Post result to Discord.
-    const chunks = splitMessage(result);
+    const chunks = splitMessage(result.text);
     for (const chunk of chunks) {
       await textChannel.send(chunk);
+    }
+
+    // Phase 6: Persist session_id for recurring task continuity.
+    if (result.sessionId) {
+      db.execute('UPDATE tasks SET session_id = ? WHERE recurrence_source_id = ? OR id = ?',
+        [result.sessionId, task.id, task.id]);
     }
 
     // Log to conversations.
     db.execute(
       'INSERT INTO conversations (channel, sender, message, is_from_charlie, created_at) VALUES (?, ?, ?, 1, ?)',
-      ['discord', 'charlie', `[scheduled] ${task.title}: ${result.slice(0, 500)}`, db.now()],
+      ['discord', 'charlie', `[scheduled] ${task.title}: ${result.text.slice(0, 500)}`, db.now()],
     );
   } catch (err) {
     log.error('Scheduled task execution failed', { taskId: task.id, error: String(err) });

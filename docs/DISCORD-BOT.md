@@ -7,18 +7,45 @@ Shared utilities (message splitting, constants) live in `src/discord/discord-uti
 ## Message Flow
 
 1. User sends message → logged to `conversations` table (channel: `discord`)
-2. Bot sends progress message, spawns `claude -p --output-format stream-json --verbose --resume <sessionId>`
-3. Child PID registered in `process_registry` as `claude-p`
-4. Stream events parsed → progress message edited with plan/phase checklist:
+2. **Session check**: restore persisted session from `sessions` table. Check if rotation needed (new day or 30+ turns).
+3. **Message coalescing**: wait 1s (`COALESCE_WINDOW_MS`), then batch all queued messages into one prompt.
+4. **Identity preamble**: prepend context snapshot, goals, tasks, activity, learnings, time-since-last-interaction (`buildIdentityPreamble()` from `session-context.ts`).
+5. Bot sends progress message, spawns `claude -p --output-format stream-json --verbose --resume <sessionId>`
+6. Child PID registered in `process_registry` as `claude-p`
+7. Stream events parsed → progress message edited with plan/phase checklist:
    - Completed phases: `✅ Phase 1: Researching codebase (7 steps, 23s)`
    - Active phase: `⏳ WebSearch — "agent autonomy patterns"`
    - Labels derived from Claude's text output between tool calls
-5. On completion, progress message replaced with final response (split at 2000 chars)
-6. Child PID retired, response logged
+8. On completion, progress message replaced with final response (split at 2000 chars)
+9. **Session persist**: upsert session_id + turn_count to `sessions` table.
+10. **Flush check**: if turn_count >= 20, auto-send flush reminder to persist context to SQLite.
+11. Child PID retired, response logged
+
+## Session Continuity
+
+Session IDs are stored in the `sessions` table (schema v10) and survive bot restarts. On first access to a channel, the bot restores the persisted session from DB. Session management is in `src/discord/session-context.ts`.
+
+**Session rotation** triggers on:
+- **New day**: if `last_used_at` is a different calendar day, send handover prompt, then start fresh.
+- **Turn limit**: if `turn_count >= 30` (`SESSION_TURN_ROTATE_THRESHOLD`), same handover-then-rotate flow.
+
+**Pre-compaction flush** at `turn_count >= 20` (`SESSION_TURN_FLUSH_THRESHOLD`): sends a system message telling the agent to call `context_flush`. This is a safety net — Claude Code's native compaction handles most context management.
+
+**Identity preamble** (`buildIdentityPreamble()`): prepended to every prompt so the agent always knows who it is:
+- Last context snapshot (summary, key facts)
+- Active goals (from memories table, type=goal)
+- Top 5 pending tasks
+- Today's daily log (last 5 entries)
+- Recent learnings (last 3)
+- Time since last interaction
 
 ## Per-Channel Queue
 
 One `claude -p` at a time per channel. Additional messages queued with position indicator. LRU eviction at 100 channels.
+
+## Message Coalescing
+
+When the queue has messages waiting, the bot waits `COALESCE_WINDOW_MS` (1 second) before processing to allow additional messages to arrive. All queued messages are then batched into a single prompt (format: `[username]: message` per line). This reduces unnecessary turns and token usage.
 
 ## Circuit Breaker (Hystrix half-open pattern)
 

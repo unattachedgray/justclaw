@@ -12,10 +12,9 @@
  * Budget: shares the awareness message budget. Active hours enforced.
  */
 
-import { spawn as spawnChild } from 'child_process';
-import { existsSync } from 'fs';
 import type { DB } from '../db.js';
 import { getLogger } from '../logger.js';
+import { spawnClaudeP } from '../claude-spawn.js';
 
 const log = getLogger('anticipation');
 
@@ -233,18 +232,6 @@ export function gatherSignals(db: DB): AnticipationSignal[] {
 // LLM reasoning (claude -p)
 // ---------------------------------------------------------------------------
 
-function findClaudeBin(): string {
-  const home = process.env.HOME || '';
-  for (const p of [
-    home + '/.local/bin/claude',
-    home + '/.claude/local/claude',
-    '/usr/local/bin/claude',
-  ]) {
-    if (existsSync(p)) return p;
-  }
-  return 'claude';
-}
-
 function buildPrompt(signals: AnticipationSignal[]): string {
   const signalBlocks = signals.map((s) =>
     `### ${s.category}\n${s.data}`
@@ -340,54 +327,15 @@ export async function anticipate(db: DB): Promise<AnticipationResult | null> {
   }
 
   const prompt = buildPrompt(signals);
-  const claudeBin = findClaudeBin();
-
-  const args = [
-    '-p', prompt,
-    '--output-format', 'json',
-    '--allowedTools', '',
-  ];
-
-  const shellCmd = [claudeBin, ...args]
-    .map((a) => `'${a.replace(/'/g, "'\\''")}'`)
-    .join(' ');
 
   try {
-    const response = await new Promise<string>((resolve, reject) => {
-      const child = spawnChild('setsid', ['-w', 'bash', '-c', shellCmd], {
-        stdio: ['ignore', 'pipe', 'pipe'],
-        env: (() => {
-          const e: Record<string, string | undefined> = { ...process.env, JUSTCLAW_NO_DASHBOARD: '1' };
-          delete e.CLAUDECODE;
-          return e;
-        })(),
-      });
-
-      let stdout = '';
-      const timeout = setTimeout(() => {
-        try { process.kill(-child.pid!, 'SIGTERM'); } catch { /* */ }
-        reject(new Error('Anticipation timed out'));
-      }, ANTICIPATION_TIMEOUT_MS);
-
-      child.stdout!.on('data', (c: Buffer) => { stdout += c.toString(); });
-      child.on('close', (code) => {
-        clearTimeout(timeout);
-        if (code !== 0) reject(new Error(`claude exited with code ${code}`));
-        else resolve(stdout);
-      });
-      child.on('error', (err) => {
-        clearTimeout(timeout);
-        reject(err);
-      });
+    const response = await spawnClaudeP({
+      prompt,
+      allowedTools: [],
+      timeoutMs: ANTICIPATION_TIMEOUT_MS,
     });
 
-    let resultText = response.trim();
-    try {
-      const parsed = JSON.parse(resultText);
-      resultText = parsed.result || resultText;
-    } catch { /* use raw */ }
-
-    const result = parseResponse(resultText);
+    const result = parseResponse(response.text);
     log.info('Anticipation result', {
       suggestion: result.suggestion.slice(0, 100),
       confidence: result.confidence,
