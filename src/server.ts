@@ -10,7 +10,7 @@ import { registerGoalTools } from './goals.js';
 import { registerLearningTools } from './learnings.js';
 import { gatherSignals, type AnticipationSignal } from './discord/anticipation.js';
 import { addToWhitelist, removeFromWhitelist, getWhitelist, silenceAlert, unsilenceAlert, getActiveSilences } from './alert-manager.js';
-import { auditProcesses, getSuspiciousProcesses, getSuggestions } from './process-registry.js';
+import { auditProcesses, getSuspiciousProcesses, getSuggestions, registerProcess, retireProcess } from './process-registry.js';
 import { spawnDashboard, readPidFile } from './processes.js';
 
 let _db: DB | null = null;
@@ -23,6 +23,9 @@ export function createServer(opts: {
   _config = loadConfig(opts.configPath);
   const dbPath = resolveDbPath(_config, opts.projectRoot);
   _db = new DB(dbPath);
+
+  // Register this MCP server process so the heartbeat doesn't flag it as suspicious.
+  registerProcess(_db, process.pid, 'mcp-server');
 
   const server = new McpServer({
     name: 'justclaw',
@@ -272,6 +275,11 @@ export function getDb(): DB | null {
 
 export function shutdown(): void {
   if (_db) {
+    try {
+      retireProcess(_db, process.pid);
+    } catch {
+      /* ignore — DB may already be closing */
+    }
     try {
       _db.close();
     } catch {
