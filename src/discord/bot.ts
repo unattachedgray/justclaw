@@ -633,7 +633,7 @@ async function callClaude(
   return new Promise<ClaudeResult>((resolvePromise, reject) => {
     const child = spawnChild('setsid', ['-w', 'bash', '-c', shellCmd], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: buildClaudeEnv(),
+      env: buildClaudeEnv(channelId),
     });
 
     if (child.pid == null) {

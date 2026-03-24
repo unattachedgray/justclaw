@@ -63,12 +63,14 @@ export function registerTaskTools(server: McpServer, db: DB): void {
       target_channel: z.string().default('').describe('Discord channel ID where scheduled task results should be posted. If empty, falls back to the heartbeat channel.'),
     },
     async ({ title, description, priority, tags, due_at, depends_on, recurrence, target_channel }) => {
+      // Default target_channel to the Discord channel this was called from (set via JUSTCLAW_CHANNEL_ID env).
+      const effectiveChannel = target_channel || process.env.JUSTCLAW_CHANNEL_ID || null;
       const now = db.now();
       const result = db.execute(
         'INSERT INTO tasks (title, description, priority, tags, due_at, depends_on, recurrence, target_channel, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [title, description, priority, tags, due_at || null, depends_on, recurrence || null, target_channel || null, now, now],
+        [title, description, priority, tags, due_at || null, depends_on, recurrence || null, effectiveChannel, now, now],
       );
-      const task = { id: result.lastInsertRowid, title, status: 'pending', priority, depends_on, recurrence: recurrence || null, target_channel: target_channel || null };
+      const task = { id: result.lastInsertRowid, title, status: 'pending', priority, depends_on, recurrence: recurrence || null, target_channel: effectiveChannel };
       return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) }] };
     },
   );

@@ -25,9 +25,10 @@ export function findClaudeBin(): string {
 }
 
 /** Build the env for claude -p spawns: inherit + JUSTCLAW_NO_DASHBOARD + strip CLAUDECODE. */
-export function buildClaudeEnv(): Record<string, string | undefined> {
+export function buildClaudeEnv(channelId?: string): Record<string, string | undefined> {
   const e: Record<string, string | undefined> = { ...process.env, JUSTCLAW_NO_DASHBOARD: '1' };
   delete e.CLAUDECODE;
+  if (channelId) e.JUSTCLAW_CHANNEL_ID = channelId;
   return e;
 }
 

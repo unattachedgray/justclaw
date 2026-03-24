@@ -141,7 +141,7 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<TaskRunResult> {
   return new Promise<TaskRunResult>((resolve, reject) => {
     const child = spawnChild('setsid', ['-w', 'bash', '-c', shellCmd], {
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: buildClaudeEnv(),
+      env: buildClaudeEnv(task.target_channel || undefined),
     });
 
     if (child.pid == null) {
