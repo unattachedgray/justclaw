@@ -1,7 +1,7 @@
 /** Dashboard inline JavaScript — extracted to stay under 500-line file limit. */
 
 import { getEditModeScripts } from './html-edit-mode.js';
-import { getHeatmapScripts, getQuickActionsScripts, getClaudeSessionsScripts, getInitScripts } from './html-extras.js';
+import { getHeatmapScripts, getQuickActionsScripts, getClaudeSessionsScripts, getWidgetScripts, getInitScripts } from './html-extras.js';
 
 export function getDashboardScripts(): string {
   return `
@@ -103,6 +103,9 @@ ${getQuickActionsScripts()}
 
 // --- Claude Sessions ---
 ${getClaudeSessionsScripts()}
+
+// --- Dashboard Widgets ---
+${getWidgetScripts()}
 
 // --- SSE ---
 ${getSseScripts()}
@@ -312,6 +315,10 @@ async function refreshOverview() {
     renderDailyLog(log);
     fetchHeatmap();
     fetchClaudeSessions();
+    fetchSystemWidgets();
+    fetchAgentThroughput();
+    fetchMonitorStatus();
+    fetchAgentIntelligence();
     $('status-dot').style.background = 'var(--green)';
   } catch {
     $('status-dot').style.background = 'var(--red)';

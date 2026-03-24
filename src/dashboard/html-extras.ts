@@ -10,7 +10,7 @@ export function getHeatmapStyles(): string {
   return `
 .heatmap-grid {
   display: grid; grid-template-columns: repeat(24, 1fr); gap: 2px;
-  width: 100%; padding: 4px 0;
+  width: 100%;
 }
 .heatmap-cell {
   aspect-ratio: 1; border-radius: 2px; background: var(--surface2);
@@ -22,13 +22,18 @@ export function getHeatmapStyles(): string {
   display: flex; justify-content: space-between; font-size: 0.55rem;
   color: var(--text2); padding: 0 2px; margin-top: 2px;
 }
-.heatmap-day-labels {
-  display: grid; grid-template-rows: repeat(7, 1fr); gap: 2px;
-  font-size: 0.55rem; color: var(--text2); text-align: right;
-  padding-right: 4px; align-items: center;
-}
 .heatmap-wrapper {
-  display: grid; grid-template-columns: 28px 1fr; align-items: start;
+  display: grid; grid-template-columns: 28px 1fr; align-items: stretch;
+}
+.heatmap-rows {
+  display: grid; gap: 2px;
+}
+.heatmap-row {
+  display: grid; grid-template-columns: 28px repeat(24, 1fr); gap: 2px; align-items: center;
+}
+.heatmap-row-label {
+  font-size: 0.55rem; color: var(--text2); text-align: right; padding-right: 4px;
+  white-space: nowrap;
 }
 .heatmap-legend {
   display: flex; align-items: center; gap: 4px; font-size: 0.55rem;
@@ -60,30 +65,31 @@ function renderHeatmap(grid, max, days) {
   }
   const rgb = hexToRgb(accent);
 
-  // Build day labels
-  let dayLabelsHtml = '<div class="heatmap-day-labels">';
-  for (let d = 0; d < 7; d++) dayLabelsHtml += '<span>' + dayNames[d] + '</span>';
-  dayLabelsHtml += '</div>';
-
-  // Build grid cells (7 rows × 24 cols per day, but we show days × hours)
-  let cellsHtml = '<div class="heatmap-grid" style="grid-template-columns:repeat(24,1fr);grid-template-rows:repeat(' + grid.length + ',1fr)">';
+  // Build rows — each row has a day label + 24 cells in one grid line
+  let rowsHtml = '<div class="heatmap-rows">';
   for (let d = 0; d < grid.length; d++) {
+    rowsHtml += '<div class="heatmap-row">';
+    const dayLabel = days && days[d] ? days[d] : dayNames[d];
+    rowsHtml += '<span class="heatmap-row-label">' + dayLabel + '</span>';
     for (let h = 0; h < 24; h++) {
       const val = grid[d][h] || 0;
-      const intensity = max > 0 ? val / max : 0;
+      // Use log scale so outliers don't wash out the rest
+      const logVal = val > 0 ? Math.log(val + 1) : 0;
+      const logMax = max > 0 ? Math.log(max + 1) : 1;
+      const intensity = logMax > 0 ? logVal / logMax : 0;
       const alpha = intensity > 0 ? 0.15 + intensity * 0.85 : 0;
       const bg = alpha > 0
         ? 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha.toFixed(2) + ')'
         : 'var(--surface2)';
-      const dayLabel = days && days[d] ? days[d] : 'Day ' + d;
-      const title = dayLabel + ' ' + h + ':00 — ' + val + ' event' + (val !== 1 ? 's' : '');
-      cellsHtml += '<div class="heatmap-cell" style="background:' + bg + '" title="' + title + '"></div>';
+      const title = dayLabel + ' ' + h + ':00 EDT — ' + val + ' event' + (val !== 1 ? 's' : '');
+      rowsHtml += '<div class="heatmap-cell" style="background:' + bg + '" title="' + title + '"></div>';
     }
+    rowsHtml += '</div>';
   }
-  cellsHtml += '</div>';
+  rowsHtml += '</div>';
 
-  // Hour labels
-  let hourLabels = '<div class="heatmap-labels">';
+  // Hour labels (offset by label column width)
+  let hourLabels = '<div class="heatmap-labels" style="padding-left:30px">';
   for (let h = 0; h < 24; h += 3) hourLabels += '<span>' + h + '</span>';
   hourLabels += '</div>';
 
@@ -95,7 +101,7 @@ function renderHeatmap(grid, max, days) {
       return '<div class="heatmap-legend-cell" style="background:' + c + '"></div>';
     }).join('') + '<span>More</span></div>';
 
-  el.innerHTML = '<div class="heatmap-wrapper">' + dayLabelsHtml + '<div>' + cellsHtml + hourLabels + '</div></div>' + legend;
+  el.innerHTML = rowsHtml + hourLabels + legend;
 }
 
 async function fetchHeatmap() {
@@ -228,14 +234,20 @@ export function getClaudeSessionsScripts(): string {
 async function fetchClaudeSessions() {
   try {
     const [sessions, usage] = await Promise.all([api('claude-sessions?limit=10'), api('claude-usage?days=7')]);
+
+    // Populate tab bar stats
+    var tbsSessions = $('tbs-sessions');
+    if (tbsSessions) tbsSessions.textContent = usage.total_sessions + ' sessions';
+    var tbsTokens = $('tbs-tokens');
+    if (tbsTokens) tbsTokens.textContent = fmtTokens(usage.total_tokens) + ' tokens';
+    var tbsCache = $('tbs-cache');
+    if (tbsCache) tbsCache.textContent = usage.avg_cache_hit_rate + '% cache';
+    var tbsCost = $('tbs-cost');
+    if (tbsCost) tbsCost.textContent = '$' + usage.total_cost_usd.toFixed(2);
+
     const el = $('claude-sessions');
     if (!el) return;
-    let html = '<div class="usage-bar">';
-    html += '<div class="usage-stat"><span class="val">' + usage.total_sessions + '</span><span class="lbl">Sessions (7d)</span></div>';
-    html += '<div class="usage-stat"><span class="val">' + fmtTokens(usage.total_tokens) + '</span><span class="lbl">Total Tokens</span></div>';
-    html += '<div class="usage-stat"><span class="val">' + usage.avg_cache_hit_rate + '%</span><span class="lbl">Cache Hit</span></div>';
-    html += '<div class="usage-stat"><span class="val">$' + usage.total_cost_usd.toFixed(2) + '</span><span class="lbl">Est. Cost</span></div>';
-    html += '</div>';
+    let html = '';
     if (!sessions.length) { html += '<div class="empty">No sessions found</div>'; }
     for (const s of sessions) {
       const age = timeAgo(s.last_activity);
@@ -265,6 +277,163 @@ function timeAgo(iso) {
   if (diff < 3600) return Math.round(diff / 60) + 'm ago';
   if (diff < 86400) return Math.round(diff / 3600) + 'h ago';
   return Math.round(diff / 86400) + 'd ago';
+}
+`;
+}
+
+// --- Dashboard Widget Scripts ---
+
+export function getWidgetScripts(): string {
+  return `
+// Token sparkline in tab bar + Agent throughput in tab bar
+async function fetchSystemWidgets() {
+  try {
+    var usage = await api('token-usage');
+
+    // Tab bar sparkline
+    var sparkEl = $('tab-bar-sparkline');
+    if (sparkEl && usage.trend && usage.trend.length > 0) {
+      var trend = usage.trend;
+      var maxTok = 0;
+      for (var i = 0; i < trend.length; i++) {
+        var t = (trend[i].input || 0) + (trend[i].output || 0);
+        if (t > maxTok) maxTok = t;
+      }
+      var bars = '<div class="tab-bar-sparkline" title="Token usage (7d)">';
+      for (var i = 0; i < trend.length; i++) {
+        var total = (trend[i].input || 0) + (trend[i].output || 0);
+        var h = maxTok > 0 ? Math.max(2, Math.round((total / maxTok) * 18)) : 2;
+        var day = trend[i].day ? trend[i].day.slice(5) : '';
+        bars += '<div class="tab-bar-sparkline-bar" style="height:' + h + 'px" title="' + day + ': ' + fmtTokens(total) + '"></div>';
+      }
+      bars += '</div>';
+      sparkEl.innerHTML = bars;
+    }
+  } catch (e) { console.warn('System widgets:', e); }
+}
+
+// Agent throughput → tab bar
+async function fetchAgentThroughput() {
+  try {
+    var data = await api('agent-throughput');
+    var runsEl = $('tbs-runs');
+    if (runsEl) runsEl.textContent = data.runs_today + ' runs';
+    var durEl = $('tbs-duration');
+    if (durEl) durEl.textContent = (data.avg_duration_s > 60 ? Math.round(data.avg_duration_s / 60) + 'm' : data.avg_duration_s + 's') + ' avg';
+    var successRate = (data.tasks_completed + data.tasks_failed) > 0
+      ? Math.round(data.tasks_completed / (data.tasks_completed + data.tasks_failed) * 100) : 100;
+    var sucEl = $('tbs-success');
+    if (sucEl) {
+      sucEl.textContent = successRate + '%';
+      sucEl.style.color = successRate >= 90 ? '#4caf50' : successRate >= 70 ? '#ff9800' : '#f44336';
+    }
+  } catch (e) { console.warn('Agent throughput:', e); }
+}
+
+// Monitor status grid
+async function fetchMonitorStatus() {
+  try {
+    var data = await api('monitors-status');
+    var el = $('monitor-status');
+    if (!el) return;
+    if (!data.monitors || data.monitors.length === 0) {
+      el.innerHTML = '<div class="empty">No monitors configured</div>';
+      return;
+    }
+    var html = '<div class="monitor-grid">';
+    for (var i = 0; i < data.monitors.length; i++) {
+      var m = data.monitors[i];
+      var status = m.last_status || 'unknown';
+      var dotCls = status === 'ok' ? 'ok' : status === 'alert' ? 'alert' : status === 'critical' ? 'critical' : 'unknown';
+      var age = m.last_checked ? timeAgo(m.last_checked) : 'never';
+      html += '<div class="monitor-pill" title="' + esc(m.name) + ' — ' + status + ' (' + age + ')">';
+      html += '<span class="monitor-dot ' + dotCls + '"></span>';
+      html += '<span>' + esc(m.name) + '</span>';
+      html += '</div>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch (e) {
+    var el = $('monitor-status');
+    if (el) el.innerHTML = '<div class="empty">Monitors unavailable</div>';
+  }
+}
+
+// Agent intelligence: learnings + goals + memory breakdown
+async function fetchAgentIntelligence() {
+  try {
+    var [learnings, goals, memBreak] = await Promise.all([
+      api('learnings?limit=5'),
+      api('goals'),
+      api('memory-breakdown'),
+    ]);
+
+    // Learnings feed
+    var lEl = $('learnings-feed');
+    if (lEl) {
+      if (!learnings.learnings || learnings.learnings.length === 0) {
+        lEl.innerHTML = '<div class="empty">No learnings yet</div>';
+      } else {
+        var lHtml = '';
+        for (var i = 0; i < learnings.learnings.length; i++) {
+          var l = learnings.learnings[i];
+          lHtml += '<div class="learning-item">';
+          lHtml += '<span class="learning-badge ' + (l.category || '') + '">' + esc(l.category || 'note') + '</span>';
+          if (l.area) lHtml += ' <span class="learning-meta">' + esc(l.area) + '</span>';
+          lHtml += '<div class="learning-text">' + esc(l.lesson || l.trigger || '') + '</div>';
+          if (l.created_at) lHtml += '<div class="learning-meta">' + timeAgo(l.created_at) + '</div>';
+          lHtml += '</div>';
+        }
+        lEl.innerHTML = lHtml;
+      }
+    }
+
+    // Goals progress
+    var gEl = $('goals-progress');
+    if (gEl) {
+      if (!goals.goals || goals.goals.length === 0) {
+        gEl.innerHTML = '<h4>Active Goals</h4><div class="empty">No goals set</div>';
+      } else {
+        var gHtml = '<h4>Active Goals</h4>';
+        for (var i = 0; i < Math.min(goals.goals.length, 5); i++) {
+          var g = goals.goals[i];
+          var pct = g.total > 0 ? Math.round(g.completed / g.total * 100) : 0;
+          gHtml += '<div class="goal-item">';
+          gHtml += '<div class="goal-name">' + esc(g.title) + '</div>';
+          gHtml += '<div class="goal-progress"><div class="goal-progress-fill" style="width:' + pct + '%"></div></div>';
+          gHtml += '<div class="goal-meta">' + g.completed + '/' + g.total + ' tasks · ' + pct + '%</div>';
+          gHtml += '</div>';
+        }
+        gEl.innerHTML = gHtml;
+      }
+    }
+
+    // Memory namespace breakdown (donut via SVG)
+    var mEl = $('memory-breakdown');
+    if (mEl) {
+      if (!memBreak.byNamespace || memBreak.byNamespace.length === 0) {
+        mEl.innerHTML = '<h4>Memory Distribution</h4><div class="empty">No memories</div>';
+      } else {
+        var colors = ['#58a6ff','#f85149','#4caf50','#ff9800','#a371f7','#79c0ff','#ffa657','#7ee787'];
+        var total = memBreak.total || 1;
+        var ns = memBreak.byNamespace;
+        // Simple horizontal stacked bar
+        var barHtml = '<div style="display:flex;height:12px;border-radius:4px;overflow:hidden;margin:6px 0">';
+        var legendHtml = '<div class="donut-legend">';
+        for (var i = 0; i < ns.length; i++) {
+          var pct = Math.max(1, Math.round(ns[i].count / total * 100));
+          var c = colors[i % colors.length];
+          barHtml += '<div style="width:' + pct + '%;background:' + c + '" title="' + esc(ns[i].namespace) + ': ' + ns[i].count + '"></div>';
+          legendHtml += '<div class="donut-legend-item"><span class="donut-legend-dot" style="background:' + c + '"></span>' + esc(ns[i].namespace) + ' (' + ns[i].count + ')</div>';
+        }
+        barHtml += '</div>';
+        legendHtml += '</div>';
+        mEl.innerHTML = '<h4>Memory (' + total + ')</h4>' + barHtml + legendHtml;
+      }
+    }
+  } catch (e) {
+    console.warn('Agent intelligence:', e);
+  }
 }
 `;
 }

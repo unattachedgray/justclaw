@@ -338,6 +338,45 @@ Six-layer system that makes every session feel like the same agent waking up. Wo
 | `SMTP_USER` | SMTP login username |
 | `SMTP_PASS` | SMTP password or app password |
 | `SMTP_FROM` | From address for outgoing emails (defaults to SMTP_USER) |
+| `DASHBOARD_PASSWORD` | Dashboard login password (default `88888888`) |
+
+## Dashboard
+
+Web control plane at `http://localhost:8787`. Password-protected with sessions that survive restarts.
+
+**Tab bar stats** (always visible): token usage sparkline (7d), agent throughput (runs/duration/success%), Claude Code stats (sessions/tokens/cache/cost).
+
+**Overview panels:**
+- Work Queue, Scheduled Tasks, Memories, Conversations, Alerts, Daily Log
+- Activity Heatmap — 7-day hour-by-hour grid (EDT, log scale)
+- Monitor Status — colored pills per monitor (ok/alert/critical/unknown)
+- Agent Intelligence — learnings feed + goals progress + memory namespace distribution
+- Claude Code Sessions — recent sessions with tokens/cache/cost
+
+**Dashboard API endpoints** (auth-required unless noted):
+| Endpoint | Purpose |
+|----------|---------|
+| `/api/status` | Quick overview stats |
+| `/api/metrics` | System resources, agent runs, trends, services |
+| `/api/heatmap` | Activity heatmap data (EDT-adjusted) |
+| `/api/token-usage` | Token counts and trends (7d) |
+| `/api/agent-throughput` | Runs today, avg duration, success/fail |
+| `/api/monitors-status` | All monitors with current status |
+| `/api/learnings` | Recent learnings with category stats |
+| `/api/goals` | Active goals with task progress |
+| `/api/memory-breakdown` | Memory distribution by namespace and type |
+| `/api/extension-*` | Browser extension bridge (auth-free) |
+
+**Default monitors** (created on setup):
+| Monitor | Source | Alert condition |
+|---------|--------|-----------------|
+| `dashboard-uptime` | HTTP localhost:8787 | Status != 200 |
+| `disk-usage` | `df /` | > 85% |
+| `memory-usage` | `free` | > 85% |
+| `discord-bot` | PM2 status | Not "online" |
+| `github-repo` | GitHub API | Status > 299 |
+| `bitcoin-price` | CoinGecko BTC/USD | > 5% change |
+| `claude-ai-status` | Anthropic status page | Incident active |
 
 ## Skills
 

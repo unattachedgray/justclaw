@@ -34,7 +34,7 @@ module.exports = {
       env: {
         JUSTCLAW_ROOT: ROOT,
         JUSTCLAW_CONFIG: join(ROOT, 'config/charlie.toml'),
-        DASHBOARD_PASSWORD: dotenv.DASHBOARD_PASSWORD || 'changeme',
+        DASHBOARD_PASSWORD: dotenv.DASHBOARD_PASSWORD || '88888888',
         PATH: process.env.PATH,
       },
     },

@@ -2,8 +2,9 @@
 
 import { createHmac, randomBytes } from 'crypto';
 
-const PASSWORD = process.env.DASHBOARD_PASSWORD || 'changeme';
-const SECRET = randomBytes(32).toString('hex');
+const PASSWORD = process.env.DASHBOARD_PASSWORD || '88888888';
+// Derive secret from password so sessions survive restarts
+const SECRET = createHmac('sha256', 'justclaw-session-key').update(PASSWORD).digest('hex');
 const COOKIE_NAME = 'justclaw_session';
 const COOKIE_MAX_AGE = 86400 * 7; // 7 days
 

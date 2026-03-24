@@ -396,11 +396,12 @@ export function createApiRoutes(db: DB): Hono {
 
   // --- Activity Heatmap ---
   api.get('/heatmap', (c) => {
+    // Convert UTC → EDT (UTC-4) in the query
     const convRows = db.fetchall(
-      "SELECT strftime('%w', created_at) as dow, strftime('%H', created_at) as hour, COUNT(*) as count FROM conversations WHERE created_at >= date('now', '-30 days') GROUP BY dow, hour",
+      "SELECT strftime('%w', created_at, '-4 hours') as dow, strftime('%H', created_at, '-4 hours') as hour, COUNT(*) as count FROM conversations WHERE created_at >= date('now', '-30 days') GROUP BY dow, hour",
     );
     const procRows = db.fetchall(
-      "SELECT strftime('%w', started_at) as dow, strftime('%H', started_at) as hour, COUNT(*) as count FROM process_registry WHERE started_at >= date('now', '-30 days') GROUP BY dow, hour",
+      "SELECT strftime('%w', started_at, '-4 hours') as dow, strftime('%H', started_at, '-4 hours') as hour, COUNT(*) as count FROM process_registry WHERE started_at >= date('now', '-30 days') GROUP BY dow, hour",
     );
 
     const grid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
@@ -489,6 +490,99 @@ export function createApiRoutes(db: DB): Hono {
       } catch {
         /* stream closed */
       }
+    });
+  });
+
+  // --- Dashboard Widgets: Learnings, Goals, Monitors, Memory Breakdown ---
+
+  api.get('/learnings', (c) => {
+    const limit = parseInt(c.req.query('limit') || '5', 10);
+    const rows = db.fetchall(
+      'SELECT category, trigger, lesson, area, created_at FROM learnings ORDER BY created_at DESC LIMIT ?',
+      [limit],
+    );
+    const stats = db.fetchall(
+      'SELECT category, COUNT(*) as count FROM learnings GROUP BY category',
+    );
+    return c.json({ learnings: rows, stats });
+  });
+
+  api.get('/goals', (c) => {
+    const goals = db.fetchall(
+      "SELECT key, content, tags FROM memories WHERE type = 'goal' AND namespace = 'goals' ORDER BY created_at DESC",
+    );
+    // For each goal, count related tasks (matching by keyword in title)
+    const enriched = goals.map((g) => {
+      const title = (g.key as string) || '';
+      const searchTerm = `%${title.split('-').join('%')}%`;
+      const completed = db.fetchone(
+        "SELECT COUNT(*) as n FROM tasks WHERE status = 'completed' AND (title LIKE ? OR tags LIKE ?)",
+        [searchTerm, `%${title}%`],
+      );
+      const total = db.fetchone(
+        'SELECT COUNT(*) as n FROM tasks WHERE title LIKE ? OR tags LIKE ?',
+        [searchTerm, `%${title}%`],
+      );
+      return {
+        title,
+        content: (g.content as string || '').substring(0, 200),
+        tags: g.tags,
+        completed: (completed?.n as number) || 0,
+        total: (total?.n as number) || 0,
+      };
+    });
+    return c.json({ goals: enriched });
+  });
+
+  api.get('/monitors-status', (c) => {
+    try {
+      const monitors = db.fetchall(
+        `SELECT m.name, m.enabled, m.condition_type,
+          (SELECT status FROM monitor_history WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) as last_status,
+          (SELECT value FROM monitor_history WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) as last_value,
+          (SELECT checked_at FROM monitor_history WHERE monitor_id = m.id ORDER BY checked_at DESC LIMIT 1) as last_checked
+        FROM monitors m ORDER BY m.name`,
+      );
+      return c.json({ monitors });
+    } catch {
+      return c.json({ monitors: [] });
+    }
+  });
+
+  api.get('/memory-breakdown', (c) => {
+    const byNamespace = db.fetchall(
+      'SELECT COALESCE(namespace, \'default\') as namespace, COUNT(*) as count FROM memories GROUP BY namespace ORDER BY count DESC',
+    );
+    const byType = db.fetchall(
+      'SELECT type, COUNT(*) as count FROM memories GROUP BY type ORDER BY count DESC',
+    );
+    const total = db.fetchone('SELECT COUNT(*) as n FROM memories');
+    return c.json({ byNamespace, byType, total: (total?.n as number) || 0 });
+  });
+
+  api.get('/agent-throughput', (c) => {
+    const todayStart = db.today() + ' 00:00:00';
+    const runs = db.fetchone(
+      "SELECT COUNT(*) as total, AVG(CASE WHEN retired_at IS NOT NULL THEN (julianday(retired_at) - julianday(started_at)) * 86400 END) as avg_duration_s FROM process_registry WHERE role = 'claude-p' AND started_at >= ?",
+      [todayStart],
+    );
+    const active = db.fetchone(
+      "SELECT COUNT(*) as n FROM process_registry WHERE role = 'claude-p' AND status = 'active'",
+    );
+    const tasksCompleted = db.fetchone(
+      "SELECT COUNT(*) as n FROM tasks WHERE status = 'completed' AND completed_at >= ?",
+      [todayStart],
+    );
+    const tasksFailed = db.fetchone(
+      "SELECT COUNT(*) as n FROM tasks WHERE status = 'failed' AND completed_at >= ?",
+      [todayStart],
+    );
+    return c.json({
+      runs_today: (runs?.total as number) || 0,
+      avg_duration_s: Math.round((runs?.avg_duration_s as number) || 0),
+      active: (active?.n as number) || 0,
+      tasks_completed: (tasksCompleted?.n as number) || 0,
+      tasks_failed: (tasksFailed?.n as number) || 0,
     });
   });
 

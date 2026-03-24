@@ -94,9 +94,35 @@ header h1 { font-size: 1.3rem; font-weight: 600; white-space: nowrap; }
 function getTabStyles(): string {
   return `
 .tabs {
-  display: flex; gap: 2px; padding: 8px 16px;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--border); flex-shrink: 0; overflow-x: auto;
 }
+.tab-list { display: flex; gap: 2px; }
+.tab-bar-right {
+  display: flex; align-items: center; gap: 12px;
+}
+.tab-bar-group {
+  display: flex; align-items: center; gap: 8px;
+}
+.tab-bar-sep {
+  width: 1px; height: 18px; background: var(--border); flex-shrink: 0;
+}
+.tab-bar-stats-label {
+  color: var(--text2); font-size: 0.55rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.tab-bar-stat {
+  color: var(--accent); font-weight: 700; font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+.tab-bar-sparkline {
+  display: flex; align-items: flex-end; gap: 1px; height: 20px;
+}
+.tab-bar-sparkline-bar {
+  width: 6px; border-radius: 1px; background: var(--accent); opacity: 0.6;
+  transition: height 0.3s;
+}
+.tab-bar-sparkline-bar:hover { opacity: 1; }
 .tab {
   padding: 6px 16px; font-size: 0.8rem; font-weight: 500;
   background: transparent; border: 1px solid transparent;
@@ -161,6 +187,49 @@ function getCardAndPanelStyles(): string {
   display: grid; grid-template-columns: 1fr 1fr 1fr; grid-auto-rows: minmax(200px, 1fr);
   gap: var(--gap); flex: 1; overflow: auto;
 }
+.widget-row { display: flex; gap: 10px; margin-top: 10px; }
+.widget-card { flex: 1; background: var(--bg); border-radius: 6px; padding: 8px 10px; }
+.widget-card h4 { font-size: 0.65rem; color: var(--text2); text-transform: uppercase; letter-spacing: 0.5px; margin: 0 0 6px; }
+.widget-stat { display: flex; align-items: baseline; gap: 6px; margin: 3px 0; }
+.widget-stat .ws-val { font-size: 1rem; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.widget-stat .ws-lbl { font-size: 0.65rem; color: var(--text2); }
+.gauge-bar { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; margin: 2px 0 4px; }
+.gauge-fill { height: 100%; border-radius: 3px; transition: width 0.5s; }
+.gauge-fill.green { background: #4caf50; }
+.gauge-fill.yellow { background: #ff9800; }
+.gauge-fill.red { background: #f44336; }
+.sparkline-svg { width: 100%; height: 40px; }
+.sparkline-bar { fill: var(--accent); opacity: 0.7; }
+.sparkline-bar:hover { opacity: 1; }
+.monitor-grid { display: flex; flex-wrap: wrap; gap: 6px; }
+.monitor-pill { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 12px; font-size: 0.7rem; background: var(--surface2); }
+.monitor-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.monitor-dot.ok { background: #4caf50; }
+.monitor-dot.alert { background: #ff9800; }
+.monitor-dot.critical { background: #f44336; }
+.monitor-dot.unknown { background: var(--text2); }
+.learning-item { padding: 6px 0; border-bottom: 1px solid var(--surface2); }
+.learning-item:last-child { border-bottom: none; }
+.learning-badge { display: inline-block; padding: 1px 6px; border-radius: 8px; font-size: 0.6rem; font-weight: 600; text-transform: uppercase; }
+.learning-badge.error { background: rgba(248,81,73,0.15); color: #f85149; }
+.learning-badge.correction { background: rgba(255,152,0,0.15); color: #ff9800; }
+.learning-badge.discovery { background: rgba(88,166,255,0.15); color: #58a6ff; }
+.learning-badge.skill { background: rgba(76,175,80,0.15); color: #4caf50; }
+.learning-text { font-size: 0.75rem; color: var(--text); margin-top: 2px; }
+.learning-meta { font-size: 0.6rem; color: var(--text2); margin-top: 1px; }
+.goal-item { padding: 4px 0; }
+.goal-name { font-size: 0.75rem; font-weight: 600; color: var(--text); }
+.goal-progress { height: 4px; background: var(--surface2); border-radius: 2px; margin-top: 3px; overflow: hidden; }
+.goal-progress-fill { height: 100%; background: var(--accent); border-radius: 2px; }
+.goal-meta { font-size: 0.6rem; color: var(--text2); margin-top: 1px; }
+.throughput-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.throughput-stat { text-align: center; }
+.throughput-val { font-size: 1.5rem; font-weight: 700; color: var(--accent); line-height: 1.2; }
+.throughput-lbl { font-size: 0.6rem; color: var(--text2); }
+.donut-container { display: flex; align-items: center; gap: 10px; }
+.donut-legend { font-size: 0.65rem; color: var(--text2); }
+.donut-legend-item { display: flex; align-items: center; gap: 4px; margin: 2px 0; }
+.donut-legend-dot { width: 8px; height: 8px; border-radius: 2px; flex-shrink: 0; }
 .grid-overview .span-bottom { grid-column: span 1; }
 `;
 }
@@ -406,10 +475,30 @@ ${getQuickActionsStyles()}
 </header>
 
 <div class="tabs" id="tab-bar">
-  <div class="tab active" data-tab="overview">Overview</div>
-  <div class="tab" data-tab="conversations">Conversations</div>
-  <div class="tab" data-tab="processes">Processes</div>
-  <div class="tab" data-tab="logs">Logs</div>
+  <div class="tab-list">
+    <div class="tab active" data-tab="overview">Overview</div>
+    <div class="tab" data-tab="conversations">Conversations</div>
+    <div class="tab" data-tab="processes">Processes</div>
+    <div class="tab" data-tab="logs">Logs</div>
+  </div>
+  <div class="tab-bar-right">
+    <div class="tab-bar-group" id="tab-bar-sparkline"></div>
+    <div class="tab-bar-sep"></div>
+    <div class="tab-bar-group">
+      <span class="tab-bar-stats-label">Agent</span>
+      <span class="tab-bar-stat" id="tbs-runs" title="Agent runs today">--</span>
+      <span class="tab-bar-stat" id="tbs-duration" title="Avg duration">--</span>
+      <span class="tab-bar-stat" id="tbs-success" title="Success rate">--</span>
+    </div>
+    <div class="tab-bar-sep"></div>
+    <div class="tab-bar-group">
+      <span class="tab-bar-stats-label">Claude Code</span>
+      <span class="tab-bar-stat" id="tbs-sessions" title="Sessions (7d)">--</span>
+      <span class="tab-bar-stat" id="tbs-tokens" title="Total tokens (7d)">--</span>
+      <span class="tab-bar-stat" id="tbs-cache" title="Cache hit rate">--</span>
+      <span class="tab-bar-stat" id="tbs-cost" title="API equivalent cost (7d)">--</span>
+    </div>
+  </div>
 </div>
 
 <div class="content">
@@ -446,6 +535,20 @@ ${getQuickActionsStyles()}
     <div class="panel" data-pid="panel-heatmap">
       <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Activity Heatmap</div>
       <div class="panel-body" id="heatmap"></div>
+    </div>
+    <div class="panel" data-pid="panel-monitors">
+      <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Monitor Status</div>
+      <div class="panel-body" id="monitor-status"></div>
+    </div>
+    <div class="panel" data-pid="panel-intelligence">
+      <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Agent Intelligence</div>
+      <div class="panel-body">
+        <div id="learnings-feed"></div>
+        <div class="widget-row" id="intel-widgets">
+          <div class="widget-card" id="goals-progress"></div>
+          <div class="widget-card" id="memory-breakdown"></div>
+        </div>
+      </div>
     </div>
     <div class="panel" data-pid="panel-claude-sessions">
       <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Claude Code Sessions</div>
