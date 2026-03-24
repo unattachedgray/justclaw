@@ -3,6 +3,12 @@ import { z } from 'zod';
 import type { DB } from './db.js';
 import { cronNext } from './cron.js';
 
+/** Add random jitter of -2 to +3 minutes to a date. Makes scheduled tasks look natural. */
+function applyJitter(date: Date): Date {
+  const jitterMs = (Math.random() * 5 - 2) * 60_000; // -2min to +3min
+  return new Date(date.getTime() + jitterMs);
+}
+
 /** Compute the next due date from a recurrence pattern and a base date. */
 function computeNextDue(recurrence: string, baseDue: string | null): string {
   const base = baseDue ? new Date(baseDue) : new Date();
@@ -19,11 +25,13 @@ function computeNextDue(recurrence: string, baseDue: string | null): string {
     default:
       if (recurrence.startsWith('cron:')) {
         const expr = recurrence.slice(5);
-        return cronNext(expr, base).toISOString().replace('T', ' ').slice(0, 19);
+        const next = applyJitter(cronNext(expr, base));
+        return next.toISOString().replace('T', ' ').slice(0, 19);
       }
       break;
   }
-  return base.toISOString().replace('T', ' ').slice(0, 19);
+  const jittered = applyJitter(base);
+  return jittered.toISOString().replace('T', ' ').slice(0, 19);
 }
 
 /** Create the next instance of a recurring task after completion. */
