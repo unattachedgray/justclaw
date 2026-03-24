@@ -54,6 +54,9 @@ pm2 save                           # Persist for reboot
 | `src/discord/bot.ts` | Discord bot: streaming progress, per-channel queue, circuit breaker, graceful shutdown |
 | `src/gchat/bot.ts` | Google Chat bot: HTTP webhook, per-space queue, Cards v2 progress, 5s edit interval |
 | `src/gchat/formatter.ts` | Google Chat markdown translation, message splitting (32KB), progress rendering |
+| `src/gchat/stream.ts` | Stream-json parsing, claude -p invocation with 5s progress edits |
+| `src/gchat/gchat-client.ts` | Google Chat REST API client with JWT service account auth |
+| `src/email.ts` | SMTP email utility (Gmail app password): sendEmail(), verifySmtp() |
 | `src/discord/heartbeat.ts` | Heartbeat orchestrator: deterministic checks, dedup, presence flash, escalation |
 | `src/discord/heartbeat-checks.ts` | 9 pure TypeScript health checks |
 | `src/discord/escalation.ts` | Goal-driven LLM escalation for persistent issues |
@@ -275,6 +278,11 @@ Six-layer system that makes every session feel like the same agent waking up. Wo
 | `HEARTBEAT_INTERVAL_MS` | Check interval (default 300000) |
 | `GCHAT_SERVICE_ACCOUNT_KEY` | Path to Google Chat service account JSON key file |
 | `GCHAT_PORT` | HTTP port for Google Chat webhook (default 8788) |
+| `SMTP_HOST` | SMTP server hostname (e.g., `smtp.gmail.com`) |
+| `SMTP_PORT` | SMTP port (default 587) |
+| `SMTP_USER` | SMTP login username |
+| `SMTP_PASS` | SMTP password or app password |
+| `SMTP_FROM` | From address for outgoing emails (defaults to SMTP_USER) |
 
 ## Skills
 
