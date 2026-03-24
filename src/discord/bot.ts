@@ -1074,6 +1074,7 @@ function setupShutdownHandlers(
 function initBotServices(): { token: string; allowedChannels: string[]; db: DB } {
   const token = process.env.DISCORD_BOT_TOKEN;
   if (!token) {
+    console.error('\n  ERROR: DISCORD_BOT_TOKEN not set in .env\n  Run: cp .env.example .env && edit .env with your bot token\n');
     log.error('DISCORD_BOT_TOKEN not set');
     process.exit(1);
   }

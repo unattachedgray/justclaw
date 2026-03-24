@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
+    "postinstall": "bash scripts/postinstall.sh",
     "deploy": "bash scripts/safe-deploy.sh",
     "setup": "bash scripts/setup.sh"
   },

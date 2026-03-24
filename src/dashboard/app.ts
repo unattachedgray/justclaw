@@ -91,6 +91,23 @@ function main(): void {
 
   const app = new Hono();
 
+  // --- Public endpoints (no auth) ---
+
+  app.get('/health', (c) => {
+    const version = db.fetchone("SELECT value FROM schema_meta WHERE key='version'");
+    const taskCount = db.fetchone('SELECT COUNT(*) as count FROM tasks WHERE status IN (\'pending\', \'active\')');
+    const memoryCount = db.fetchone('SELECT COUNT(*) as count FROM memories');
+    const monitorCount = db.fetchone('SELECT COUNT(*) as count FROM monitors');
+    return c.json({
+      status: 'ok',
+      schema_version: version ? Number(version.value) : 0,
+      pending_tasks: taskCount ? Number(taskCount.count) : 0,
+      memories: memoryCount ? Number(memoryCount.count) : 0,
+      monitors: monitorCount ? Number(monitorCount.count) : 0,
+      uptime_seconds: Math.round(process.uptime()),
+    });
+  });
+
   // --- Auth routes (no middleware) ---
 
   app.get('/login', (c) => c.html(LOGIN_HTML));
@@ -115,7 +132,7 @@ function main(): void {
 
   app.use('*', async (c, next) => {
     const path = c.req.path;
-    if (path === '/login' || path === '/logout') return next();
+    if (path === '/login' || path === '/logout' || path === '/health') return next();
 
     const cookie = c.req.header('cookie');
     const token = getSessionFromCookie(cookie);
@@ -143,6 +160,8 @@ function main(): void {
   // Bind to 0.0.0.0 to be accessible from the local network.
   serve({ fetch: app.fetch, port, hostname: '0.0.0.0' }, (info) => {
     log.info('Dashboard listening', { port: info.port, hostname: '0.0.0.0' });
+    console.log(`\n  justclaw dashboard: http://localhost:${info.port}`);
+    console.log(`  health check:      http://localhost:${info.port}/health\n`);
   });
 }
 

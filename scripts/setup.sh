@@ -242,16 +242,61 @@ echo ""
 # Done
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# Step 8: Health verification
+# ---------------------------------------------------------------------------
+
+echo ""
+log "=== Verifying Services ==="
+
+HEALTH_OK=false
+if command -v curl &>/dev/null; then
+  for i in 1 2 3 4 5; do
+    if curl -sf http://localhost:8787/health >/dev/null 2>&1; then
+      HEALTH_OK=true
+      break
+    fi
+    sleep 1
+  done
+fi
+
+if [ "$HEALTH_OK" = true ]; then
+  HEALTH=$(curl -s http://localhost:8787/health)
+  log "Dashboard is healthy: $HEALTH"
+else
+  log "WARNING: Dashboard health check failed — check 'pm2 logs justclaw-dashboard'"
+fi
+
+# ---------------------------------------------------------------------------
+# Done
+# ---------------------------------------------------------------------------
+
 echo ""
 log "=== Setup Complete ==="
 echo ""
-echo "  Dashboard:  http://localhost:8787  (password in .env)"
-echo "  Discord:    Bot will respond in configured channels"
-echo "  MCP:        Run 'claude' in this directory"
+echo "  ┌──────────────────────────────────────────────────┐"
+echo "  │  Services                                        │"
+echo "  ├──────────────────────────────────────────────────┤"
+echo "  │  Dashboard:  http://localhost:8787               │"
+echo "  │  Health:     http://localhost:8787/health        │"
+echo "  │  Discord:    Bot responds in configured channels │"
+echo "  │  MCP:        Run 'claude' in this directory      │"
+echo "  └──────────────────────────────────────────────────┘"
+echo ""
+echo "  Skills available (slash commands in Claude Code):"
+echo "    /dev          — Structured development lifecycle"
+echo "    /notebook     — Document analysis (NotebookLM-style)"
+echo "    /monitor      — Metric watching with alerts"
+echo "    /build        — PRD-driven autonomous build"
+echo "    /hats         — Specialized personas"
+echo "    /review       — Pre-commit quality checklist"
+echo "    /improve      — Research + implement better practices"
+echo "    /audit        — Deep code audit"
 echo ""
 echo "  Useful commands:"
-echo "    pm2 list                    — Check service status"
-echo "    pm2 logs justclaw-discord        — View bot logs"
-echo "    npm run deploy              — Safe deploy with rollback"
-echo "    npm run dev                 — Development with hot reload"
+echo "    pm2 list                     — Check service status"
+echo "    pm2 logs justclaw-discord    — View bot logs"
+echo "    npm run deploy               — Safe deploy with rollback"
+echo "    npm test                     — Run 193 tests"
+echo "    curl localhost:8787/health   — Verify services"
 echo ""
