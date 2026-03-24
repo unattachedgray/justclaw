@@ -16,10 +16,9 @@ import type { Client, TextChannel } from 'discord.js';
 import type { DB } from '../db.js';
 import { getLogger } from '../logger.js';
 import { registerProcess, retireProcess } from '../process-registry.js';
+import { DISCORD_MAX_LENGTH, splitMessage } from './discord-utils.js';
 
 const log = getLogger('scheduled-tasks');
-
-const DISCORD_MAX_LENGTH = 2000;
 const TASK_TIMEOUT_MS = 5 * 60_000; // 5 min max per scheduled task
 
 /** Track active scheduled task to prevent overlap. */
@@ -33,6 +32,7 @@ interface DueTask {
   tags: string;
   recurrence: string;
   due_at: string;
+  target_channel: string | null;
 }
 
 function findClaudeBin(): string {
@@ -47,29 +47,11 @@ function findClaudeBin(): string {
   return 'claude';
 }
 
-function splitMessage(text: string): string[] {
-  if (text.length <= DISCORD_MAX_LENGTH) return [text];
-  const chunks: string[] = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    if (remaining.length <= DISCORD_MAX_LENGTH) {
-      chunks.push(remaining);
-      break;
-    }
-    let splitIdx = remaining.lastIndexOf('\n', DISCORD_MAX_LENGTH);
-    if (splitIdx <= 0) splitIdx = remaining.lastIndexOf(' ', DISCORD_MAX_LENGTH);
-    if (splitIdx <= 0) splitIdx = DISCORD_MAX_LENGTH;
-    chunks.push(remaining.slice(0, splitIdx));
-    remaining = remaining.slice(splitIdx).replace(/^[\n ]/, '');
-  }
-  return chunks;
-}
-
 /** Query for recurring tasks that are past due and still pending. */
 function getDueTasks(db: DB): DueTask[] {
   const now = db.now();
   const rows = db.fetchall(
-    `SELECT id, title, description, priority, tags, recurrence, due_at
+    `SELECT id, title, description, priority, tags, recurrence, due_at, target_channel
      FROM tasks
      WHERE recurrence IS NOT NULL
        AND due_at IS NOT NULL
@@ -87,13 +69,14 @@ function getDueTasks(db: DB): DueTask[] {
     tags: (r.tags as string) || '',
     recurrence: r.recurrence as string,
     due_at: r.due_at as string,
+    target_channel: (r.target_channel as string) || null,
   }));
 }
 
 /** Query for auto-executable tasks (flagged for autonomous execution). */
 function getAutoExecuteTasks(db: DB): DueTask[] {
   const rows = db.fetchall(
-    `SELECT id, title, description, priority, tags, recurrence, due_at
+    `SELECT id, title, description, priority, tags, recurrence, due_at, target_channel
      FROM tasks
      WHERE auto_execute = 1
        AND status = 'pending'
@@ -108,6 +91,7 @@ function getAutoExecuteTasks(db: DB): DueTask[] {
     tags: (r.tags as string) || '',
     recurrence: (r.recurrence as string) || '',
     due_at: (r.due_at as string) || '',
+    target_channel: (r.target_channel as string) || null,
   }));
 }
 
@@ -228,13 +212,45 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<string> {
 }
 
 /**
+ * Resolve the Discord channel for a task: use task's target_channel if set,
+ * otherwise fall back to the default (heartbeat) channel.
+ */
+async function resolveChannel(
+  client: Client,
+  task: DueTask,
+  fallbackChannelId: string,
+): Promise<TextChannel | null> {
+  const targetId = task.target_channel || fallbackChannelId;
+  if (!targetId) return null;
+  try {
+    const channel = await client.channels.fetch(targetId);
+    if (channel && 'send' in channel) return channel as TextChannel;
+  } catch (err) {
+    log.error('Cannot fetch target channel, trying fallback', {
+      taskId: task.id,
+      targetChannel: targetId,
+      error: String(err),
+    });
+    // If the task had a specific channel that failed, try the fallback.
+    if (task.target_channel && fallbackChannelId && task.target_channel !== fallbackChannelId) {
+      try {
+        const fb = await client.channels.fetch(fallbackChannelId);
+        if (fb && 'send' in fb) return fb as TextChannel;
+      } catch { /* can't reach fallback either */ }
+    }
+  }
+  return null;
+}
+
+/**
  * Check for and execute due scheduled tasks.
  * Called from heartbeat tick. Runs at most one task per tick.
+ * Tasks with a target_channel are posted there; others go to fallbackChannelId.
  */
 export async function checkAndRunScheduledTasks(
   db: DB,
   client: Client,
-  channelId: string,
+  fallbackChannelId: string,
 ): Promise<void> {
   // Don't overlap — one scheduled task at a time.
   if (runningTaskId !== null) {
@@ -252,18 +268,17 @@ export async function checkAndRunScheduledTasks(
     if (autoExecuteEnabled?.value === 'true') {
       const autoTasks = getAutoExecuteTasks(db);
       if (autoTasks.length > 0) {
-        // Run auto-execute task with same flow as scheduled tasks.
         const task = autoTasks[0];
         runningTaskId = task.id;
-        log.info('Auto-executing task', { id: task.id, title: task.title });
+        log.info('Auto-executing task', { id: task.id, title: task.title, targetChannel: task.target_channel });
         db.execute("UPDATE tasks SET status = 'active', updated_at = ? WHERE id = ?", [db.now(), task.id]);
         try {
-          const channel = await client.channels.fetch(channelId);
-          if (channel && 'send' in channel) {
-            await (channel as TextChannel).send(`🤖 **Auto-executing task:** ${task.title}`);
+          const textChannel = await resolveChannel(client, task, fallbackChannelId);
+          if (textChannel) {
+            await textChannel.send(`🤖 **Auto-executing task:** ${task.title}`);
             const result = await runClaudeForTask(db, task);
             for (const chunk of splitMessage(result)) {
-              await (channel as TextChannel).send(chunk);
+              await textChannel.send(chunk);
             }
           }
         } catch (err) {
@@ -280,7 +295,7 @@ export async function checkAndRunScheduledTasks(
   const task = dueTasks[0];
   runningTaskId = task.id;
 
-  log.info('Executing scheduled task', { id: task.id, title: task.title, dueAt: task.due_at });
+  log.info('Executing scheduled task', { id: task.id, title: task.title, dueAt: task.due_at, targetChannel: task.target_channel });
 
   // Mark task as active.
   db.execute(
@@ -289,13 +304,11 @@ export async function checkAndRunScheduledTasks(
   );
 
   try {
-    // Post a "starting" message.
-    const channel = await client.channels.fetch(channelId);
-    if (!channel || !('send' in channel)) {
-      log.error('Cannot send to channel', { channelId });
+    const textChannel = await resolveChannel(client, task, fallbackChannelId);
+    if (!textChannel) {
+      log.error('Cannot send to any channel for task', { taskId: task.id, targetChannel: task.target_channel, fallback: fallbackChannelId });
       return;
     }
-    const textChannel = channel as TextChannel;
     await textChannel.send(`📅 **Scheduled task starting:** ${task.title}`);
 
     // Run claude -p.
@@ -315,11 +328,11 @@ export async function checkAndRunScheduledTasks(
   } catch (err) {
     log.error('Scheduled task execution failed', { taskId: task.id, error: String(err) });
 
-    // Post error to Discord.
+    // Post error to Discord — try task's channel, then fallback.
     try {
-      const channel = await client.channels.fetch(channelId);
-      if (channel && 'send' in channel) {
-        await (channel as TextChannel).send(
+      const errChannel = await resolveChannel(client, task, fallbackChannelId);
+      if (errChannel) {
+        await errChannel.send(
           `⚠️ **Scheduled task failed:** ${task.title}\n${String(err).slice(0, 200)}`,
         );
       }

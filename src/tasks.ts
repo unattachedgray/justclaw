@@ -36,9 +36,9 @@ function spawnNextRecurrence(db: DB, task: Record<string, unknown>): Record<stri
   const now = db.now();
 
   const result = db.execute(
-    `INSERT INTO tasks (title, description, priority, tags, due_at, depends_on, recurrence, recurrence_source_id, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [task.title, task.description || '', task.priority || 5, task.tags || '', nextDue, '', recurrence, sourceId, now, now],
+    `INSERT INTO tasks (title, description, priority, tags, due_at, depends_on, recurrence, recurrence_source_id, target_channel, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [task.title, task.description || '', task.priority || 5, task.tags || '', nextDue, '', recurrence, sourceId, task.target_channel || null, now, now],
   );
   return { id: result.lastInsertRowid, title: task.title, due_at: nextDue, recurrence, recurrence_source_id: sourceId };
 }
@@ -60,14 +60,15 @@ export function registerTaskTools(server: McpServer, db: DB): void {
       due_at: z.string().default('').describe('Deadline as ISO datetime (e.g. "2026-03-25T17:00:00")'),
       depends_on: z.string().default('').describe('Comma-separated task IDs that must complete first'),
       recurrence: z.string().default('').describe('Recurrence pattern: daily, weekly, monthly, or cron:<expression> (e.g. "cron:0 9 * * *")'),
+      target_channel: z.string().default('').describe('Discord channel ID where scheduled task results should be posted. If empty, falls back to the heartbeat channel.'),
     },
-    async ({ title, description, priority, tags, due_at, depends_on, recurrence }) => {
+    async ({ title, description, priority, tags, due_at, depends_on, recurrence, target_channel }) => {
       const now = db.now();
       const result = db.execute(
-        'INSERT INTO tasks (title, description, priority, tags, due_at, depends_on, recurrence, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [title, description, priority, tags, due_at || null, depends_on, recurrence || null, now, now],
+        'INSERT INTO tasks (title, description, priority, tags, due_at, depends_on, recurrence, target_channel, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [title, description, priority, tags, due_at || null, depends_on, recurrence || null, target_channel || null, now, now],
       );
-      const task = { id: result.lastInsertRowid, title, status: 'pending', priority, depends_on, recurrence: recurrence || null };
+      const task = { id: result.lastInsertRowid, title, status: 'pending', priority, depends_on, recurrence: recurrence || null, target_channel: target_channel || null };
       return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) }] };
     },
   );
@@ -85,8 +86,9 @@ export function registerTaskTools(server: McpServer, db: DB): void {
       priority: z.number().default(0).describe('Updated priority (1-10). 0 = no change'),
       result: z.string().default('').describe('Result/progress notes'),
       depends_on: z.string().default('').describe('Updated dependency list (comma-separated task IDs)'),
+      target_channel: z.string().default('').describe('Discord channel ID for posting results. Empty = no change.'),
     },
-    async ({ id, status, description, priority, result, depends_on }) => {
+    async ({ id, status, description, priority, result, depends_on, target_channel }) => {
       const existing = db.fetchone('SELECT * FROM tasks WHERE id = ?', [id]);
       if (!existing) {
         return { content: [{ type: 'text', text: `Task ${id} not found.` }] };
@@ -107,6 +109,7 @@ export function registerTaskTools(server: McpServer, db: DB): void {
       if (priority > 0) { updates.push('priority = ?'); params.push(priority); }
       if (result) { updates.push('result = ?'); params.push(result); }
       if (depends_on) { updates.push('depends_on = ?'); params.push(depends_on); }
+      if (target_channel) { updates.push('target_channel = ?'); params.push(target_channel); }
 
       if (updates.length === 0) {
         return { content: [{ type: 'text', text: 'Nothing to update.' }] };

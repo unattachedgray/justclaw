@@ -1,4 +1,4 @@
-# Database Schema (v8)
+# Database Schema (v9)
 
 SQLite with WAL mode, FTS5. Schema defined in `src/db.ts` with automatic migration.
 
@@ -16,13 +16,14 @@ SQLite with WAL mode, FTS5. Schema defined in `src/db.ts` with automatic migrati
 | `learnings` | category, trigger, lesson, area, applied_count | v8: structured self-improvement from errors/corrections |
 | `daily_log` | date, entry, category | Append-only activity journal |
 | `state` | key (PK), value | KV store + suspicious_pid_* entries |
-| `schema_meta` | key (PK), value | Version tracking (currently v8) |
+| `schema_meta` | key (PK), value | Version tracking (currently v9) |
 
-### Tasks Extra Columns (v8)
+### Tasks Extra Columns (v9)
 | Column | Type | Default | Notes |
 |--------|------|---------|-------|
 | `auto_execute` | INTEGER | 0 | When 1, task can be auto-executed by scheduled task runner |
 | `recurrence` | TEXT | NULL | Cron-style recurrence (e.g., `cron:0 8 * * 1-5`) |
+| `target_channel` | TEXT | NULL | Discord channel ID for posting scheduled task results. Falls back to heartbeat channel if NULL. Inherited by spawned recurrence instances. |
 
 ## Self-Healing Features
 

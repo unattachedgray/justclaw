@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 
-const SCHEMA_VERSION = 8;
+const SCHEMA_VERSION = 9;
 
 const SCHEMA_SQL = `
 -- Memories: durable facts, preferences, decisions, context.
@@ -236,6 +236,11 @@ const MIGRATIONS: Record<number, string[]> = {
     `CREATE INDEX IF NOT EXISTS idx_learnings_area ON learnings(area)`,
     // Tasks: auto_execute flag for autonomous execution.
     'ALTER TABLE tasks ADD COLUMN auto_execute INTEGER NOT NULL DEFAULT 0',
+  ],
+  9: [
+    // Per-task Discord channel routing: scheduled tasks post results to this channel.
+    // Falls back to heartbeat channel if NULL.
+    "ALTER TABLE tasks ADD COLUMN target_channel TEXT DEFAULT NULL",
   ],
 };
 

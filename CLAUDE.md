@@ -18,7 +18,7 @@ SQLite-backed MCP server (30 tools) + Discord bot + deterministic heartbeat + se
 | **Node.js** | v22+ |
 | **Discord channel** | Private server, single-user (Julian) |
 | **PM2 services** | `justclaw-dashboard` (Hono :8787), `justclaw-discord` (bot + heartbeat) |
-| **Database** | `data/charlie.db` (SQLite, WAL, FTS5, schema v6) |
+| **Database** | `data/charlie.db` (SQLite, WAL, FTS5, schema v9) |
 | **Debug mode** | Set `JUSTCLAW_DEBUG=1` in `.env` to suppress LLM escalation |
 
 ## Architecture
@@ -26,7 +26,7 @@ SQLite-backed MCP server (30 tools) + Discord bot + deterministic heartbeat + se
 ```
 Claude Code CLI → justclaw MCP Server (stdio, 30 tools)
                          ↓
-              SQLite (data/charlie.db, WAL, FTS5, schema v4)
+              SQLite (data/charlie.db, WAL, FTS5, schema v9)
                     ↓         ↓              ↓
               Dashboard   Discord Bot    Heartbeat (deterministic)
               Hono:8787   discord.js     9 checks, <1s, $0/cycle
@@ -49,14 +49,15 @@ pm2 save                           # Persist for reboot
 |------|---------|
 | `src/index.ts` | MCP server entry: PID mgmt, signals, stdio transport |
 | `src/server.ts` | Registers all 30 MCP tools |
-| `src/db.ts` | SQLite schema v4, FTS5, migrations, integrity check, backup |
+| `src/db.ts` | SQLite schema v9, FTS5, migrations, integrity check, backup |
 | `src/process-registry.ts` | PID tracking, safety scoring, suspicious detection, malfunction escalation |
 | `src/discord/bot.ts` | Discord bot: streaming progress, per-channel queue, circuit breaker, graceful shutdown |
 | `src/discord/heartbeat.ts` | Heartbeat orchestrator: deterministic checks, dedup, presence flash, escalation |
 | `src/discord/heartbeat-checks.ts` | 9 pure TypeScript health checks |
 | `src/discord/escalation.ts` | Goal-driven LLM escalation for persistent issues |
 | `src/discord/anticipation.ts` | Predicts what user needs next: signal gathering + LLM synthesis |
-| `src/discord/scheduled-tasks.ts` | Executes due recurring tasks via claude -p from heartbeat tick |
+| `src/discord/discord-utils.ts` | Shared Discord utilities: code-block-aware message splitting |
+| `src/discord/scheduled-tasks.ts` | Executes due recurring tasks via claude -p, per-task channel routing |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
 | `.mcp.json` | MCP server config — **must include `JUSTCLAW_NO_DASHBOARD: "1"`** |
 
@@ -187,7 +188,7 @@ Full details: @docs/DISCORD-BOT.md
 
 9 checks every 5min: process audit, stale claude scan, pm2 health, unanswered messages, system status, stuck tasks, doc staleness, event loop, memory usage. Persistent ALERTs escalate to Claude after 3 cycles. Healing verified at 2min.
 
-**Scheduled task executor:** After health checks, the heartbeat queries for recurring tasks past their `due_at`. Due tasks are executed via `claude -p` (`src/discord/scheduled-tasks.ts`), results posted to Discord, and `task_complete` called (which auto-spawns the next recurrence). One task at a time to avoid overload. Create recurring tasks with `task_create(recurrence: 'daily', due_at: '...')`.
+**Scheduled task executor:** After health checks, the heartbeat queries for recurring tasks past their `due_at`. Due tasks are executed via `claude -p` (`src/discord/scheduled-tasks.ts`), results posted to the task's `target_channel` (falls back to heartbeat channel if not set), and `task_complete` called (which auto-spawns the next recurrence, inheriting `target_channel`). One task at a time to avoid overload. Create recurring tasks with `task_create(recurrence: 'daily', due_at: '...', target_channel: '<discord-channel-id>')`.
 
 ## Self-Healing
 

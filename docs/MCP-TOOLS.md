@@ -13,8 +13,8 @@
 ## Tasks (6)
 | Tool | Description |
 |------|-------------|
-| `task_create` | Create with title, description, priority, tags, due_at, depends_on |
-| `task_update` | Update status/description/priority/result/depends_on |
+| `task_create` | Create with title, description, priority, tags, due_at, depends_on, target_channel |
+| `task_update` | Update status/description/priority/result/depends_on/target_channel |
 | `task_list` | List with status/priority/tag/assigned_to filters |
 | `task_next` | Highest-priority ready task (respects depends_on), auto-marks active |
 | `task_claim` | Atomic claim for agent, stale-claim override (>1hr) with force |
