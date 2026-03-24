@@ -2,7 +2,7 @@
 
 *Open infrastructure for the Claude Code CLI.*
 
-**Make Claude Code autonomous.** justclaw gives Claude Code CLI persistent memory, a task queue, health monitoring, and a Discord interface — turning individual CLI sessions into a continuous, self-managing AI agent. All backed by SQLite, zero cloud dependencies.
+**Make Claude Code autonomous.** justclaw gives Claude Code CLI persistent memory, a task queue, health monitoring, document analysis, metric watching, and a Discord interface — turning individual CLI sessions into a continuous, self-managing AI agent. All backed by SQLite, zero cloud dependencies.
 
 ## Philosophy
 
@@ -18,55 +18,85 @@ justclaw is an MCP server. Claude Code connects to it over stdio like any other 
 
 ### Deterministic first, LLM only when reasoning is genuinely needed
 
-Every health check, every process audit, every threshold evaluation is pure TypeScript — SQL queries, `/proc` reads, PID comparisons. No LLM calls. The 9 heartbeat checks run in under 1 second at zero cost.
+Every health check, every process audit, every threshold evaluation, every document chunking, every monitor condition is pure TypeScript — SQL queries, `/proc` reads, PID comparisons, FTS5 search. No LLM calls. The 9 heartbeat checks run in under 1 second at zero cost.
 
-LLM reasoning is reserved for where it actually matters: diagnosing novel issues that persist after deterministic checks fail (3+ cycles), and responding to humans. This isn't a philosophical preference — the original LLM-based heartbeat cost $14/month and was less reliable than the deterministic replacement.
+LLM reasoning is reserved for where it actually matters: diagnosing novel issues that persist after deterministic checks fail (3+ cycles), synthesizing document analysis, and responding to humans.
 
 ### Conservative by default
 
 justclaw will never:
 - Kill a process it didn't spawn (verified via `/proc/cmdline` + SQLite registry)
 - Auto-modify source code from automated troubleshooting
-- Silently swallow errors
+- Silently swallow errors (all catches have structured logging)
 - Make destructive changes without evidence
-
-Suspicious processes are tracked and scored (0-100) but only reported to the user. Auto-killing only happens during confirmed crash loops, and only for processes scoring 70+ seen across 3+ monitoring cycles.
-
-## What makes justclaw different
-
-[OpenClaw](https://github.com/openclaw/openclaw) is the most popular open-source AI assistant framework — 20+ messaging platforms, vector + BM25 + FTS5 memory, 4-tier self-healing, cron automation, 100+ agent skills, a full dashboard. It's also ~500K lines of code with 70+ dependencies.
-
-**justclaw replicates the same core capabilities in ~4,000 lines by leveraging what Claude Code CLI already provides natively**, instead of rebuilding everything from scratch.
-
-| Capability | OpenClaw (custom code) | justclaw (Claude Code native + thin layer) |
-|---|---|---|
-| **Memory** | Markdown files + vector embeddings + BM25 + FTS5, multiple embedding providers | SQLite FTS5, namespaces, access tracking, expiry, consolidation — 6 MCP tools. No embedding server needed. |
-| **Task queue** | Basic task tracking | Dependencies, agent claiming, priority queue, recurring tasks with cron expressions — 6 MCP tools |
-| **Scheduling** | Built-in cron daemon + heartbeat | Claude Code's native scheduled tasks + justclaw's 5-field cron parser for recurring tasks |
-| **Messaging** | 20+ platform adapters (custom code per platform) | Discord (native bot) + Claude Code's channel plugins (Discord, Slack, Telegram — zero custom adapter code) |
-| **Health monitoring** | 4-tier: preflight → keepalive → watchdog → AI recovery in tmux | 9 deterministic checks ($0/cycle) + PM2 auto-restart + LLM escalation only for persistent issues |
-| **Self-healing** | Watchdog with exponential backoff, crash counters decay after 6h | Conservative 3-layer kill policy, PID reuse protection, safety scoring (0-100), stale-counter detection |
-| **Budget tracking** | Per-agent cost caps, circuit breakers | Token tracking via stream-json parsing + Claude Code session JSONL parsing (cache hits, per-model costs) |
-| **Dashboard** | Full monitoring UI | Hono dashboard with SSE, activity heatmap, Claude Code session stats, quick actions, themes |
-| **Agent skills** | 100+ preconfigured skills | Claude Code's native tool use + `/hats` personas + `/newskill` builder + `/build` orchestrator |
-| **Context management** | Manual | Auto-flush before compaction via Claude Code hooks (SessionStart, PreCompact, Stop) |
-| **Orchestration** | Custom agent runtime, gateway WebSocket, plugin architecture | Claude Code CLI is the runtime. MCP over stdio. No middleware. |
-| **Codebase** | ~500K LOC, 70+ deps, 16K commits | ~4K LOC, <15 deps |
-
-The key insight: OpenClaw rebuilds agent orchestration, tool routing, channel adapters, and memory indexing from scratch. justclaw treats all of that as solved by Claude Code CLI and only builds what Claude Code doesn't have — **persistence across sessions, a task queue, lifecycle hooks, and deterministic health monitoring**.
-
-**One SQLite database, one MCP server, one tool namespace.** Memory, tasks, context, conversations, process state, and health metrics all live in the same DB. Claude can query across all of them in a single session.
 
 ## What it provides
 
-- **30 MCP tools** — memory (6), tasks (6), context (5), conversations (4), state/status (3), process management (4), system health (2)
-- **Discord bot** — stream Claude's responses to Discord with real-time progress display, per-channel queuing, and circuit breaker protection
-- **Heartbeat monitor** — 9 pure TypeScript health checks every 5 minutes: process audit, stale process scan, PM2 health, unanswered messages, system status, stuck tasks, doc staleness, event loop, memory usage
-- **Goal-driven escalation** — when deterministic checks fail for 3+ cycles, Claude is invoked to diagnose and fix, with recommendations stored for future reference
-- **Web dashboard** — live status page with activity heatmap, Claude Code session tracking (tokens, cache hits, costs), quick actions, drag-and-drop layout, theme support
-- **10 slash commands** — `/hats` (5 personas), `/build` (PRD-driven build loop), `/newskill` (research + security audit + build), `/eval` (skill testing), `/security-audit`, `/improve`, `/audit`, `/retrospective`, `/review`, `/adr`
-- **6 custom agents** — task-worker, research-agent, conversation-reviewer, fast-researcher (Haiku), diagnostician, executor — scoped tools per role
-- **Safe deploy** — `npm run deploy` builds, tests, git-tags, restarts, monitors for 60s, and auto-rolls back on crash loop
+### Core (49 MCP Tools)
+
+- **Memory (6)** — save, search, recall, forget, list, consolidate. FTS5 full-text search, namespaces, access tracking, expiry.
+- **Tasks (6)** — create, update, list, next, claim, complete. Dependencies, agent claiming, recurring tasks with cron, auto-execute, per-task Discord channel routing.
+- **Context (5)** — flush, restore, today, daily_log_add/get. Compaction lifecycle with automatic flush reminders.
+- **Conversations (4)** — log, history, search, summary. FTS5 across channels.
+- **Goals (3)** — set, list, archive. Persistent objectives that drive daily task generation.
+- **Learnings (3)** — add, search, stats. Structured self-improvement from errors, corrections, and discoveries.
+
+### Document Analysis (NotebookLM-style)
+
+- **Notebooks (6)** — create, query, sources, list, overview, delete.
+- Point to any folder → ingests 60+ file formats (PDF, DOCX, XLSX, PPTX, HTML, EPUB, RTF, images, code, config).
+- **Context-window-first**: small doc sets (<100K tokens) load entirely into Claude's 200K context window. Larger sets use FTS5 BM25 chunked retrieval.
+- Source-grounded answers with `[source:filename:lines]` citations.
+- Paragraph-aware chunking with 150-token overlap. Incremental re-indexing (tracks file mtimes).
+- Unsupported format detection → logged as learnings for future auto-research.
+
+### Metric Monitoring (Huginn-style)
+
+- **Monitors (6)** — create, list, check, history, update, delete.
+- Track any metric: crypto prices, website uptime, web page changes, API latency, SSL expiry, disk usage, GitHub stars.
+- **Sources**: URL (HTTP GET/POST) or shell command.
+- **Extractors**: jsonpath, regex, status_code, response_time, body_hash, stdout, exit_code.
+- **Conditions**: threshold_above/below, change_percent, change_any, contains, not_contains, regex_match.
+- Runs automatically in heartbeat loop (every 5 min). Alerts escalate from ALERT to CRITICAL after 3 consecutive triggers. Per-monitor Discord channel routing.
+
+### Session Continuity ("Always-On Agent")
+
+- **Session persistence** — session IDs stored in SQLite, survive bot restarts. `--resume` works across sessions.
+- **Identity preamble** — every prompt prepended with: last context snapshot, active goals, pending tasks, today's activity, recent learnings, time since last interaction.
+- **Message coalescing** — multiple queued messages batched into one prompt (1s window).
+- **Pre-compaction flush** — auto-reminds agent to save state at 20+ turns.
+- **Session rotation** — fresh start at 30+ turns or daily, with structured handover.
+- **Scheduled task sessions** — recurring tasks can use `--resume` for continuity across runs.
+
+### Discord Bot
+
+- Stream Claude's responses with real-time plan/phase progress display.
+- Per-channel message queue, circuit breaker (3 failures → escalating cooldown).
+- Multi-turn sessions via `--resume` per channel.
+- Graceful shutdown kills process groups (SIGTERM → wait → SIGKILL).
+
+### Health Monitoring
+
+- **9 deterministic checks** every 5 minutes ($0/cycle): process audit, stale process scan, PM2 health, unanswered messages, system status, stuck tasks, doc staleness, event loop, memory usage.
+- **Goal-driven LLM escalation** — when deterministic checks fail for 3+ cycles, Claude diagnoses and recommends fixes. Past diagnoses feed into future escalation prompts.
+- **Healing verification** — re-checks at 2 min after escalation claims resolution.
+
+### Development Skills
+
+- `/dev <mode> <desc>` — 7-phase development lifecycle (think/plan/build/review/test/ship/reflect). Modes: `new`, `fix`, `refactor`, `debug`.
+- `/notebook <cmd> <name>` — document-grounded analysis.
+- `/monitor <cmd> [name]` — metric watching.
+- `/build [prd]` — PRD-driven autonomous build loop with quality gates.
+- `/hats <name>` — specialized personas (architect, code-reviewer, debugger, feature-dev, security-reviewer).
+- `/review` — pre-commit quality checklist.
+- `/improve`, `/audit`, `/retrospective`, `/adr`, `/newskill`, `/eval`, `/security-audit`
+
+### Infrastructure
+
+- **Web dashboard** — Hono :8787 with SSE, activity heatmap, Claude Code session stats, quick actions, themes.
+- **Safe deploy** — `npm run deploy` builds, tests, git-tags, restarts, monitors for 60s, auto-rolls back on crash loop.
+- **Crash watchdog** — cron (2min) detects crash loops, auto-reverts to last stable tag.
+- **Process registry** — conservative 3-layer kill policy with PID reuse protection and safety scoring (0-100).
 
 ## Quick Start
 
@@ -86,7 +116,7 @@ If you just want persistent memory and tasks for Claude Code:
 npm install && npm run build
 ```
 
-Run `claude` from this directory. The `.mcp.json` auto-registers all 30 tools.
+Run `claude` from this directory. The `.mcp.json` auto-registers all 49 tools.
 
 ### Manual Setup
 
@@ -118,18 +148,21 @@ pm2 start ecosystem.config.cjs
 ## Architecture
 
 ```
-Claude Code CLI ──> justclaw MCP Server (stdio, 30 tools)
+Claude Code CLI ──> justclaw MCP Server (stdio, 49 tools)
                            │
-                SQLite (WAL, FTS5, schema v7)
+                SQLite (WAL, FTS5, schema v14)
                     │          │              │
               Dashboard    Discord Bot    Heartbeat
-              Hono :8787   discord.js     9 checks, <1s, $0
+              Hono :8787   discord.js     9 checks + monitors
               read-only    claude -p       adaptive thresholds
                            streaming       flap detection
-                           circuit breaker LLM escalation
+                           sessions        LLM escalation
+                           coalescing      monitor alerts
 ```
 
-**Hook-driven lifecycle:** Claude Code hooks in `.claude/settings.json` inject reminders at critical moments — session start (restore context), pre-compaction (flush state), session end (save progress). This is how justclaw maintains continuity without any custom agent loop.
+**Session continuity:** Claude Code's native context management handles compaction. justclaw augments it with durable persistence (SQLite) and identity injection so every session feels like the same agent waking up.
+
+**Hook-driven lifecycle:** Claude Code hooks inject reminders at critical moments — session start (restore context), pre-compaction (flush state), session end (save progress).
 
 ## Configuration
 
@@ -139,7 +172,7 @@ Claude Code CLI ──> justclaw MCP Server (stdio, 30 tools)
 |----------|----------|---------|-------------|
 | `DISCORD_BOT_TOKEN` | For Discord | — | From Discord Developer Portal |
 | `DISCORD_CHANNEL_IDS` | No | all | Channels to respond in |
-| `DISCORD_HEARTBEAT_CHANNEL_ID` | No | first channel | Where alerts are posted |
+| `DISCORD_HEARTBEAT_CHANNEL_ID` | No | first channel | Where health alerts are posted |
 | `HEARTBEAT_INTERVAL_MS` | No | 300000 | Health check interval (ms) |
 | `DASHBOARD_PASSWORD` | No | changeme | Dashboard login password |
 
@@ -152,7 +185,7 @@ Customize the assistant's name, personality, and defaults.
 ```bash
 npm run build            # Compile TypeScript
 npm run dev              # Development with hot reload
-npm test                 # Run test suite (68 tests)
+npm test                 # Run test suite (193 tests)
 npm run deploy           # Safe deploy with auto-rollback
 npm run setup            # Interactive first-time setup
 pm2 list                 # Check service status
@@ -163,12 +196,11 @@ pm2 logs justclaw-discord     # View bot logs
 
 | Document | Content |
 |----------|---------|
-| [CLAUDE.md](CLAUDE.md) | Development guide and architecture |
-| [docs/MCP-TOOLS.md](docs/MCP-TOOLS.md) | All 30 MCP tools |
-| [docs/DISCORD-BOT.md](docs/DISCORD-BOT.md) | Discord bot internals |
+| [CLAUDE.md](CLAUDE.md) | Development guide, architecture, all 49 tools |
+| [docs/MCP-TOOLS.md](docs/MCP-TOOLS.md) | Complete MCP tool reference |
+| [docs/DISCORD-BOT.md](docs/DISCORD-BOT.md) | Discord bot internals, session continuity |
 | [docs/PROCESS-MANAGEMENT.md](docs/PROCESS-MANAGEMENT.md) | Process registry and kill policy |
-| [docs/SCHEMA.md](docs/SCHEMA.md) | Database schema |
-| [DEVELOPMENT.md](DEVELOPMENT.md) | History, decisions, roadmap |
+| [docs/SCHEMA.md](docs/SCHEMA.md) | Database schema (v14) |
 
 ## License
 
