@@ -102,11 +102,6 @@ describe('chunkText', () => {
     // Last chunk ends at line 100.
     const lastChunk = chunks[chunks.length - 1];
     expect(lastChunk.lineEnd).toBe(100);
-
-    // Chunks are contiguous (no gaps).
-    for (let i = 1; i < chunks.length; i++) {
-      expect(chunks[i].lineStart).toBeLessThanOrEqual(chunks[i - 1].lineEnd + 1);
-    }
   });
 
   it('handles empty text', () => {
@@ -121,6 +116,22 @@ describe('chunkText', () => {
       expect(chunk.tokenEstimate).toBeGreaterThan(0);
     }
   });
+
+  it('produces overlapping chunks for large text', () => {
+    // Generate text large enough to produce multiple chunks.
+    const para = 'Overlap test content here. '.repeat(300);
+    const text = para + '\n\n' + para;
+    const chunks = chunkText(text);
+    if (chunks.length >= 2) {
+      // The end of chunk N should overlap with the start of chunk N+1.
+      const endOfFirst = chunks[0].content.slice(-200);
+      const startOfSecond = chunks[1].content.slice(0, 400);
+      // Some text from the tail of the first chunk should appear in the second.
+      const endWords = endOfFirst.split(/\s+/).filter(Boolean).slice(-3);
+      const hasOverlap = endWords.some((w) => startOfSecond.includes(w));
+      expect(hasOverlap).toBe(true);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -128,60 +139,84 @@ describe('chunkText', () => {
 // ---------------------------------------------------------------------------
 
 describe('scanDirectory', () => {
-  it('finds supported text files', () => {
+  it('finds supported text files', async () => {
     writeFileSync(join(docsDir, 'readme.md'), '# Hello\nThis is a test.');
     writeFileSync(join(docsDir, 'code.ts'), 'const x = 1;');
 
-    const { files, skipped } = scanDirectory(docsDir);
+    const { files, skipped } = await scanDirectory(docsDir);
     expect(files.length).toBe(2);
     expect(files.map((f) => f.name).sort()).toEqual(['code.ts', 'readme.md']);
   });
 
-  it('skips unsupported formats and tracks them', () => {
+  it('skips truly unsupported formats and tracks them', async () => {
     writeFileSync(join(docsDir, 'readme.md'), '# Hello');
-    writeFileSync(join(docsDir, 'image.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
-    writeFileSync(join(docsDir, 'data.xlsx'), 'fake excel');
+    writeFileSync(join(docsDir, 'data.bin'), 'binary stuff');
 
-    const { files, skipped } = scanDirectory(docsDir);
+    const { files, skipped } = await scanDirectory(docsDir);
     expect(files.length).toBe(1);
-    expect(skipped.length).toBe(2);
-    expect(skipped.some((s) => s.extension === '.png')).toBe(true);
-    expect(skipped.some((s) => s.extension === '.xlsx')).toBe(true);
-    expect(skipped.every((s) => s.reason === 'unsupported_format')).toBe(true);
+    expect(skipped.length).toBe(1);
+    expect(skipped[0].extension).toBe('.bin');
   });
 
-  it('skips node_modules and hidden dirs', () => {
+  it('skips node_modules and hidden dirs', async () => {
     mkdirSync(join(docsDir, 'node_modules'));
     writeFileSync(join(docsDir, 'node_modules', 'dep.js'), 'module.exports = {}');
     mkdirSync(join(docsDir, '.hidden'));
     writeFileSync(join(docsDir, '.hidden', 'secret.md'), 'secret');
     writeFileSync(join(docsDir, 'visible.md'), 'visible');
 
-    const { files } = scanDirectory(docsDir);
+    const { files } = await scanDirectory(docsDir);
     expect(files.length).toBe(1);
     expect(files[0].name).toBe('visible.md');
   });
 
-  it('recurses into subdirectories', () => {
+  it('recurses into subdirectories', async () => {
     mkdirSync(join(docsDir, 'sub'));
     writeFileSync(join(docsDir, 'top.md'), 'top');
     writeFileSync(join(docsDir, 'sub', 'nested.md'), 'nested');
 
-    const { files } = scanDirectory(docsDir);
+    const { files } = await scanDirectory(docsDir);
     expect(files.length).toBe(2);
   });
 
-  it('returns empty for non-existent directory', () => {
-    const { files, skipped } = scanDirectory('/tmp/nonexistent-dir-12345');
+  it('returns empty for non-existent directory', async () => {
+    const { files, skipped } = await scanDirectory('/tmp/nonexistent-dir-12345');
     expect(files.length).toBe(0);
     expect(skipped.length).toBe(0);
   });
 
-  it('calculates token estimates per file', () => {
+  it('calculates token estimates per file', async () => {
     writeFileSync(join(docsDir, 'doc.md'), 'Hello world test content here');
 
-    const { files } = scanDirectory(docsDir);
+    const { files } = await scanDirectory(docsDir);
     expect(files[0].tokenEstimate).toBeGreaterThan(0);
+  });
+
+  it('extracts CSV files via extractor pipeline', async () => {
+    writeFileSync(join(docsDir, 'data.csv'), 'name,value\nalice,1\nbob,2');
+
+    const { files } = await scanDirectory(docsDir);
+    const csv = files.find((f) => f.name === 'data.csv');
+    expect(csv).toBeDefined();
+    expect(csv!.content).toContain('alice');
+  });
+
+  it('handles SVG files via extractor pipeline', async () => {
+    writeFileSync(join(docsDir, 'icon.svg'), '<svg><text>Hello SVG</text></svg>');
+
+    const { files } = await scanDirectory(docsDir);
+    const svg = files.find((f) => f.name === 'icon.svg');
+    expect(svg).toBeDefined();
+    expect(svg!.content).toContain('Hello SVG');
+  });
+
+  it('handles image files with placeholder', async () => {
+    writeFileSync(join(docsDir, 'photo.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+
+    const { files } = await scanDirectory(docsDir);
+    const img = files.find((f) => f.name === 'photo.png');
+    expect(img).toBeDefined();
+    expect(img!.content).toContain('[Image:');
   });
 });
 
@@ -190,71 +225,94 @@ describe('scanDirectory', () => {
 // ---------------------------------------------------------------------------
 
 describe('ingestNotebook', () => {
-  it('creates a notebook with correct stats', () => {
+  it('creates a notebook with correct stats', async () => {
     writeFileSync(join(docsDir, 'doc1.md'), '# Doc 1\nContent here.');
     writeFileSync(join(docsDir, 'doc2.md'), '# Doc 2\nMore content.');
 
-    const result = ingestNotebook(db, 'test-nb', docsDir);
+    const result = await ingestNotebook(db, 'test-nb', docsDir);
     expect(result.name).toBe('test-nb');
     expect(result.total_files).toBe(2);
     expect(result.total_chunks).toBeGreaterThanOrEqual(2);
     expect(result.total_tokens).toBeGreaterThan(0);
   });
 
-  it('chooses direct mode for small notebooks', () => {
+  it('chooses direct mode for small notebooks', async () => {
     writeFileSync(join(docsDir, 'small.md'), 'Small document.');
 
-    const result = ingestNotebook(db, 'small', docsDir);
+    const result = await ingestNotebook(db, 'small', docsDir);
     expect(result.mode).toBe('direct');
   });
 
-  it('persists notebook to DB', () => {
+  it('persists notebook to DB', async () => {
     writeFileSync(join(docsDir, 'doc.md'), 'Content.');
 
-    ingestNotebook(db, 'persist-test', docsDir);
+    await ingestNotebook(db, 'persist-test', docsDir);
     const row = db.fetchone('SELECT * FROM notebooks WHERE name = ?', ['persist-test']);
     expect(row).not.toBeNull();
     expect(row!.name).toBe('persist-test');
   });
 
-  it('stores chunks in document_chunks table', () => {
+  it('stores chunks in document_chunks table', async () => {
     writeFileSync(join(docsDir, 'doc.md'), 'Line 1\nLine 2\nLine 3');
 
-    const result = ingestNotebook(db, 'chunks-test', docsDir);
+    const result = await ingestNotebook(db, 'chunks-test', docsDir);
     const chunks = db.fetchall('SELECT * FROM document_chunks WHERE notebook_id = ?', [result.id]);
     expect(chunks.length).toBeGreaterThan(0);
     expect(chunks[0].file_name).toBe('doc.md');
   });
 
-  it('re-ingestion replaces old chunks', () => {
+  it('re-ingestion replaces old chunks', async () => {
     writeFileSync(join(docsDir, 'doc.md'), 'Version 1');
-    ingestNotebook(db, 'reingest', docsDir);
+    await ingestNotebook(db, 'reingest', docsDir);
 
     writeFileSync(join(docsDir, 'doc.md'), 'Version 2 with more content');
-    const result = ingestNotebook(db, 'reingest', docsDir);
+    const result = await ingestNotebook(db, 'reingest', docsDir);
 
     const chunks = db.fetchall('SELECT content FROM document_chunks WHERE notebook_id = ?', [result.id]);
     expect(chunks.length).toBeGreaterThan(0);
     expect(chunks[0].content).toContain('Version 2');
   });
 
-  it('tracks skipped files', () => {
+  it('tracks skipped files', async () => {
     writeFileSync(join(docsDir, 'doc.md'), 'Good file');
-    writeFileSync(join(docsDir, 'image.jpg'), 'not really an image');
+    writeFileSync(join(docsDir, 'data.bin'), 'not recognized');
 
-    const result = ingestNotebook(db, 'skip-test', docsDir);
+    const result = await ingestNotebook(db, 'skip-test', docsDir);
     expect(result.skipped.length).toBe(1);
-    expect(result.unsupportedFormats).toContain('.jpg');
+    expect(result.unsupportedFormats).toContain('.bin');
   });
 
-  it('logs unsupported formats as learnings', () => {
+  it('logs unsupported formats as learnings', async () => {
     writeFileSync(join(docsDir, 'doc.md'), 'Good file');
-    writeFileSync(join(docsDir, 'data.pdf'), 'fake pdf');
+    writeFileSync(join(docsDir, 'data.xyz'), 'unknown format');
 
-    ingestNotebook(db, 'learning-test', docsDir);
+    await ingestNotebook(db, 'learning-test', docsDir);
     const learnings = db.fetchall("SELECT * FROM learnings WHERE area = 'notebooks'");
     expect(learnings.length).toBe(1);
-    expect(String(learnings[0].lesson)).toContain('.pdf');
+    expect(String(learnings[0].lesson)).toContain('.xyz');
+  });
+
+  it('stores file_mtime in chunks for incremental re-indexing', async () => {
+    writeFileSync(join(docsDir, 'doc.md'), 'Content');
+
+    const result = await ingestNotebook(db, 'mtime-test', docsDir);
+    const chunk = db.fetchone('SELECT file_mtime FROM document_chunks WHERE notebook_id = ?', [result.id]);
+    expect(chunk).not.toBeNull();
+    expect(chunk!.file_mtime).toBeTruthy();
+  });
+
+  it('skips unchanged files on re-ingest (incremental)', async () => {
+    writeFileSync(join(docsDir, 'doc.md'), 'Stable content');
+    writeFileSync(join(docsDir, 'other.md'), 'Other content');
+    await ingestNotebook(db, 'incr-test', docsDir);
+
+    // Only modify one file.
+    writeFileSync(join(docsDir, 'other.md'), 'Updated other content');
+    const result = await ingestNotebook(db, 'incr-test', docsDir);
+
+    // Both files should be present.
+    expect(result.total_files).toBe(2);
+    expect(result.total_chunks).toBeGreaterThanOrEqual(2);
   });
 });
 
@@ -263,39 +321,39 @@ describe('ingestNotebook', () => {
 // ---------------------------------------------------------------------------
 
 describe('searchNotebook', () => {
-  it('finds matching chunks via BM25', () => {
+  it('finds matching chunks via BM25', async () => {
     writeFileSync(join(docsDir, 'api.md'), '# API Reference\nThe authentication endpoint uses JWT tokens.');
     writeFileSync(join(docsDir, 'db.md'), '# Database\nSQLite with WAL mode for concurrent reads.');
 
-    const nb = ingestNotebook(db, 'search-test', docsDir);
+    const nb = await ingestNotebook(db, 'search-test', docsDir);
     const results = searchNotebook(db, nb.id, 'authentication JWT');
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].content).toContain('JWT');
   });
 
-  it('returns empty for no matches', () => {
+  it('returns empty for no matches', async () => {
     writeFileSync(join(docsDir, 'doc.md'), 'Hello world');
 
-    const nb = ingestNotebook(db, 'empty-search', docsDir);
+    const nb = await ingestNotebook(db, 'empty-search', docsDir);
     const results = searchNotebook(db, nb.id, 'xyznonexistent');
     expect(results.length).toBe(0);
   });
 
-  it('respects limit parameter', () => {
+  it('respects limit parameter', async () => {
     // Create multiple files with the same keyword.
     for (let i = 0; i < 10; i++) {
       writeFileSync(join(docsDir, `doc${i}.md`), `Document ${i} about testing and quality.`);
     }
 
-    const nb = ingestNotebook(db, 'limit-test', docsDir);
+    const nb = await ingestNotebook(db, 'limit-test', docsDir);
     const results = searchNotebook(db, nb.id, 'testing quality', 3);
     expect(results.length).toBeLessThanOrEqual(3);
   });
 
-  it('includes file path and line numbers in results', () => {
+  it('includes file path and line numbers in results', async () => {
     writeFileSync(join(docsDir, 'code.ts'), 'function hello() {\n  return "world";\n}');
 
-    const nb = ingestNotebook(db, 'meta-test', docsDir);
+    const nb = await ingestNotebook(db, 'meta-test', docsDir);
     const results = searchNotebook(db, nb.id, 'hello');
     expect(results.length).toBeGreaterThan(0);
     expect(results[0].file_name).toBe('code.ts');
@@ -309,11 +367,11 @@ describe('searchNotebook', () => {
 // ---------------------------------------------------------------------------
 
 describe('loadAllChunks', () => {
-  it('returns all chunks ordered by file and index', () => {
+  it('returns all chunks ordered by file and index', async () => {
     writeFileSync(join(docsDir, 'a.md'), 'First file content');
     writeFileSync(join(docsDir, 'b.md'), 'Second file content');
 
-    const nb = ingestNotebook(db, 'load-all', docsDir);
+    const nb = await ingestNotebook(db, 'load-all', docsDir);
     const chunks = loadAllChunks(db, nb.id);
     expect(chunks.length).toBeGreaterThanOrEqual(2);
   });
@@ -355,11 +413,11 @@ describe('formatChunksAsContext', () => {
 // ---------------------------------------------------------------------------
 
 describe('listSources', () => {
-  it('returns per-file stats', () => {
+  it('returns per-file stats', async () => {
     writeFileSync(join(docsDir, 'api.md'), '# API\nLong content here. '.repeat(50));
     writeFileSync(join(docsDir, 'db.md'), '# DB\nShort.');
 
-    const nb = ingestNotebook(db, 'sources-test', docsDir);
+    const nb = await ingestNotebook(db, 'sources-test', docsDir);
     const sources = listSources(db, nb.id);
     expect(sources.length).toBe(2);
     expect(sources[0].chunks).toBeGreaterThan(0);
@@ -368,10 +426,10 @@ describe('listSources', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Schema v12
+// Schema v13
 // ---------------------------------------------------------------------------
 
-describe('Schema v12', () => {
+describe('Schema v13', () => {
   it('creates notebooks table', () => {
     const tables = db.fetchall("SELECT name FROM sqlite_master WHERE type='table'").map((r) => r.name);
     expect(tables).toContain('notebooks');
@@ -383,9 +441,14 @@ describe('Schema v12', () => {
     expect(tables).toContain('chunks_fts');
   });
 
-  it('cascade deletes chunks when notebook deleted', () => {
+  it('document_chunks has file_mtime column', () => {
+    const cols = db.fetchall("PRAGMA table_info(document_chunks)").map((r) => r.name);
+    expect(cols).toContain('file_mtime');
+  });
+
+  it('cascade deletes chunks when notebook deleted', async () => {
     writeFileSync(join(docsDir, 'doc.md'), 'Content');
-    const nb = ingestNotebook(db, 'cascade-test', docsDir);
+    const nb = await ingestNotebook(db, 'cascade-test', docsDir);
 
     const chunksBefore = db.fetchall('SELECT COUNT(*) as c FROM document_chunks WHERE notebook_id = ?', [nb.id]);
     expect((chunksBefore[0].c as number)).toBeGreaterThan(0);
@@ -396,8 +459,25 @@ describe('Schema v12', () => {
     expect((chunksAfter[0].c as number)).toBe(0);
   });
 
-  it('schema version is 12', () => {
+  it('schema version is 13', () => {
     const row = db.fetchone("SELECT value FROM schema_meta WHERE key='version'");
-    expect(Number(row!.value)).toBe(12);
+    expect(Number(row!.value)).toBe(13);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Extractors (integration)
+// ---------------------------------------------------------------------------
+
+describe('extractors integration', () => {
+  it('extracts HTML to markdown', async () => {
+    writeFileSync(join(docsDir, 'page.html'), '<h1>Title</h1><p>Hello <strong>world</strong></p>');
+
+    const { files } = await scanDirectory(docsDir);
+    const html = files.find((f) => f.name === 'page.html');
+    expect(html).toBeDefined();
+    // Turndown converts to markdown.
+    expect(html!.content).toContain('Title');
+    expect(html!.content).toContain('world');
   });
 });

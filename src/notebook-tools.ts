@@ -26,7 +26,7 @@ export function registerNotebookTools(server: McpServer, db: DB): void {
     },
     async ({ name, path: dirPath }) => {
       try {
-        const info = ingestNotebook(db, name, dirPath);
+        const info = await ingestNotebook(db, name, dirPath);
         const modeDesc = info.mode === 'direct'
           ? `Direct mode — all ${info.total_tokens.toLocaleString()} tokens fit in context`
           : `Chunked mode — ${info.total_tokens.toLocaleString()} tokens across ${info.total_chunks} chunks (FTS5 retrieval)`;

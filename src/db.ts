@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 
-const SCHEMA_VERSION = 12;
+const SCHEMA_VERSION = 13;
 
 const SCHEMA_SQL = `
 -- Memories: durable facts, preferences, decisions, context.
@@ -224,6 +224,7 @@ CREATE TABLE IF NOT EXISTS document_chunks (
     line_start    INTEGER NOT NULL DEFAULT 1,
     line_end      INTEGER NOT NULL DEFAULT 1,
     token_estimate INTEGER NOT NULL DEFAULT 0,
+    file_mtime    TEXT    DEFAULT NULL,
     created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_notebook ON document_chunks(notebook_id);
@@ -440,6 +441,10 @@ const MIGRATIONS: Record<number, string[]> = {
         INSERT INTO chunks_fts(chunks_fts, rowid, file_name, content)
         VALUES ('delete', old.id, old.file_name, old.content);
     END`,
+  ],
+  13: [
+    // Incremental re-indexing: track file modification time to skip unchanged files.
+    "ALTER TABLE document_chunks ADD COLUMN file_mtime TEXT DEFAULT NULL",
   ],
 };
 
