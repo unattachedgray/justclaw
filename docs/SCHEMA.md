@@ -1,4 +1,4 @@
-# Database Schema (v10)
+# Database Schema (v11)
 
 SQLite with WAL mode, FTS5. Schema defined in `src/db.ts` with automatic migration.
 
@@ -17,7 +17,7 @@ SQLite with WAL mode, FTS5. Schema defined in `src/db.ts` with automatic migrati
 | `sessions` | channel_id (PK), session_id, turn_count, last_used_at, context_hint | v10: persistent session IDs for `--resume` across restarts |
 | `daily_log` | date, entry, category | Append-only activity journal |
 | `state` | key (PK), value | KV store + suspicious_pid_* entries |
-| `schema_meta` | key (PK), value | Version tracking (currently v10) |
+| `schema_meta` | key (PK), value | Version tracking (currently v11) |
 
 ### Sessions Table (v10)
 | Column | Type | Default | Notes |
@@ -36,6 +36,14 @@ SQLite with WAL mode, FTS5. Schema defined in `src/db.ts` with automatic migrati
 | `recurrence` | TEXT | NULL | Cron-style recurrence (e.g., `cron:0 8 * * 1-5`) |
 | `target_channel` | TEXT | NULL | Discord channel ID for posting scheduled task results. Falls back to heartbeat channel if NULL. Inherited by spawned recurrence instances. |
 | `session_id` | TEXT | NULL | v10: Claude Code session ID for scheduled task `--resume`. Inherited by spawned recurrence instances. |
+
+### Performance Indexes (v11)
+| Index | Columns | Notes |
+|-------|---------|-------|
+| `idx_conversations_created_at` | conversations(created_at) | Speeds up time-range queries on conversation history |
+| `idx_tasks_status_priority` | tasks(status, priority) WHERE status IN ('pending', 'active') | Partial index for task_next and task_list queries |
+| `idx_tasks_due_at` | tasks(due_at) WHERE status = 'pending' AND recurrence IS NOT NULL | Partial index for scheduled task due-date lookups |
+| `idx_daily_log_date` | daily_log(date) | Speeds up daily log queries (context_today, preamble builder) |
 
 ## Self-Healing Features
 

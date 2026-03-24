@@ -23,7 +23,7 @@ Shared utilities (message splitting, constants) live in `src/discord/discord-uti
 
 ## Session Continuity
 
-Session IDs are stored in the `sessions` table (schema v10) and survive bot restarts. On first access to a channel, the bot restores the persisted session from DB. Session management is in `src/discord/session-context.ts`.
+Session IDs are stored in the `sessions` table (schema v11) and survive bot restarts. On first access to a channel, the bot restores the persisted session from DB. Session management is in `src/discord/session-context.ts`.
 
 **Session rotation** triggers on:
 - **New day**: if `last_used_at` is a different calendar day, send handover prompt, then start fresh.
