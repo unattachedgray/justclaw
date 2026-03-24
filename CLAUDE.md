@@ -17,7 +17,7 @@ SQLite-backed MCP server (30 tools) + Discord bot + deterministic heartbeat + se
 | **Hostname** | `ubuntu-ThinkCentre-M725s` |
 | **Node.js** | v22+ |
 | **Discord channel** | Private server, single-user (Julian) |
-| **PM2 services** | `justclaw-dashboard` (Hono :8787), `justclaw-discord` (bot + heartbeat) |
+| **PM2 services** | `justclaw-dashboard` (Hono :8787), `justclaw-discord` (bot + heartbeat), `justclaw-gchat` (Hono :8788) |
 | **Database** | `data/charlie.db` (SQLite, WAL, FTS5, schema v12) |
 | **Debug mode** | Set `JUSTCLAW_DEBUG=1` in `.env` to suppress LLM escalation |
 
@@ -27,9 +27,9 @@ SQLite-backed MCP server (30 tools) + Discord bot + deterministic heartbeat + se
 Claude Code CLI → justclaw MCP Server (stdio, 30 tools)
                          ↓
               SQLite (data/charlie.db, WAL, FTS5, schema v12)
-                    ↓         ↓              ↓
-              Dashboard   Discord Bot    Heartbeat (deterministic)
-              Hono:8787   discord.js     9 checks, <1s, $0/cycle
+                    ↓         ↓              ↓              ↓
+              Dashboard   Discord Bot   GChat Bot     Heartbeat (deterministic)
+              Hono:8787   discord.js    Hono:8788     9 checks, <1s, $0/cycle
               read-only   streams claude  + LLM escalation on persist
 ```
 
@@ -52,6 +52,8 @@ pm2 save                           # Persist for reboot
 | `src/db.ts` | SQLite schema v14, FTS5, migrations, integrity check, backup |
 | `src/process-registry.ts` | PID tracking, safety scoring, suspicious detection, malfunction escalation |
 | `src/discord/bot.ts` | Discord bot: streaming progress, per-channel queue, circuit breaker, graceful shutdown |
+| `src/gchat/bot.ts` | Google Chat bot: HTTP webhook, per-space queue, Cards v2 progress, 5s edit interval |
+| `src/gchat/formatter.ts` | Google Chat markdown translation, message splitting (32KB), progress rendering |
 | `src/discord/heartbeat.ts` | Heartbeat orchestrator: deterministic checks, dedup, presence flash, escalation |
 | `src/discord/heartbeat-checks.ts` | 9 pure TypeScript health checks |
 | `src/discord/escalation.ts` | Goal-driven LLM escalation for persistent issues |
@@ -271,6 +273,8 @@ Six-layer system that makes every session feel like the same agent waking up. Wo
 | `DISCORD_BOT_TOKEN` | Bot token (in .env) |
 | `DISCORD_HEARTBEAT_CHANNEL_ID` | Channel for heartbeat alerts |
 | `HEARTBEAT_INTERVAL_MS` | Check interval (default 300000) |
+| `GCHAT_SERVICE_ACCOUNT_KEY` | Path to Google Chat service account JSON key file |
+| `GCHAT_PORT` | HTTP port for Google Chat webhook (default 8788) |
 
 ## Skills
 
