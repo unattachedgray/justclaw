@@ -180,6 +180,38 @@ if [ ! -f "$ROOT/.env" ]; then
   if [ -n "$DASH_PASS" ]; then
     sed -i "s/^DASHBOARD_PASSWORD=.*/DASHBOARD_PASSWORD=$DASH_PASS/" "$ROOT/.env"
   fi
+
+  echo ""
+  log "=== Email / SMTP Setup (optional) ==="
+  echo ""
+  echo "  Used for sending daily reports and notifications."
+  echo "  For Gmail: use an App Password (not your regular password)"
+  echo "    → Google Account → Security → 2-Step Verification → App Passwords"
+  echo ""
+
+  ask "Enter SMTP host (e.g. smtp.gmail.com, or Enter to skip):"
+  read -r SMTP_HOST_VAL
+  if [ -n "$SMTP_HOST_VAL" ]; then
+    sed -i "s/^SMTP_HOST=.*/SMTP_HOST=$SMTP_HOST_VAL/" "$ROOT/.env"
+    sed -i "s/^SMTP_PORT=.*/SMTP_PORT=587/" "$ROOT/.env"
+
+    ask "Enter SMTP username (email address):"
+    read -r SMTP_USER_VAL
+    if [ -n "$SMTP_USER_VAL" ]; then
+      sed -i "s/^SMTP_USER=.*/SMTP_USER=$SMTP_USER_VAL/" "$ROOT/.env"
+      sed -i "s/^SMTP_FROM=.*/SMTP_FROM=$SMTP_USER_VAL/" "$ROOT/.env"
+    fi
+
+    ask "Enter SMTP password / app password:"
+    read -rs SMTP_PASS_VAL
+    echo ""
+    if [ -n "$SMTP_PASS_VAL" ]; then
+      sed -i "s/^SMTP_PASS=.*/SMTP_PASS=$SMTP_PASS_VAL/" "$ROOT/.env"
+    fi
+    log "SMTP config saved to .env"
+  else
+    warn "Skipping email setup. Edit .env later to add SMTP_* variables."
+  fi
 else
   log ".env already exists, skipping configuration"
 fi
@@ -227,7 +259,58 @@ if command -v pm2 &>/dev/null; then
 fi
 
 # ---------------------------------------------------------------------------
-# Step 7: MCP server setup
+# Step 7: Git configuration
+# ---------------------------------------------------------------------------
+
+echo ""
+log "=== Git Setup ==="
+
+if ! git config --global user.email &>/dev/null; then
+  warn "Git user identity not configured."
+  ask "Enter your email for git commits:"
+  read -r GIT_EMAIL
+  if [ -n "$GIT_EMAIL" ]; then
+    git config --global user.email "$GIT_EMAIL"
+  fi
+  ask "Enter your name for git commits:"
+  read -r GIT_NAME
+  if [ -n "$GIT_NAME" ]; then
+    git config --global user.name "$GIT_NAME"
+  fi
+  log "Git identity configured"
+else
+  log "Git identity: $(git config --global user.name) <$(git config --global user.email)>"
+fi
+
+# SSH key for GitHub (needed for automated report publishing)
+if [ ! -f "$HOME/.ssh/id_ed25519.pub" ] && [ ! -f "$HOME/.ssh/id_rsa.pub" ]; then
+  warn "No SSH key found. Needed for pushing to GitHub (report archiving, etc)."
+  ask "Generate an SSH key now? (Y/n)"
+  read -r GEN_SSH
+  if [ "${GEN_SSH,,}" != "n" ]; then
+    GIT_EMAIL=$(git config --global user.email || echo "")
+    ssh-keygen -t ed25519 -C "${GIT_EMAIL:-justclaw}" -f "$HOME/.ssh/id_ed25519" -N ""
+    echo ""
+    log "SSH public key (add this to GitHub → Settings → SSH and GPG Keys):"
+    echo ""
+    cat "$HOME/.ssh/id_ed25519.pub"
+    echo ""
+    ask "Press Enter after adding the key to GitHub..."
+    read -r
+    ssh-keyscan github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null
+    log "GitHub host key added to known_hosts"
+  fi
+else
+  log "SSH key found"
+  # Ensure GitHub host key is in known_hosts
+  if ! ssh-keygen -F github.com &>/dev/null; then
+    ssh-keyscan github.com >> "$HOME/.ssh/known_hosts" 2>/dev/null
+    log "GitHub host key added to known_hosts"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# Step 8: MCP server setup
 # ---------------------------------------------------------------------------
 
 echo ""
@@ -239,11 +322,30 @@ echo "  Run 'claude' from this directory and justclaw tools will be available."
 echo ""
 
 # ---------------------------------------------------------------------------
-# Done
+# Step 9: Chrome extension
 # ---------------------------------------------------------------------------
 
+echo ""
+log "=== Chrome Browser Bridge (optional) ==="
+echo ""
+echo "  justclaw includes a Chrome extension with 62 browser automation commands."
+echo "  This lets the agent take screenshots, fill forms, extract data, and more."
+echo ""
+echo "  To install:"
+echo "    1. Open Chrome and go to chrome://extensions"
+echo "    2. Enable 'Developer mode' (toggle in top-right)"
+echo "    3. Click 'Load unpacked'"
+echo "    4. Select: $ROOT/browser-extension"
+echo "    5. The extension icon should appear in your toolbar"
+echo ""
+echo "  The extension communicates with the dashboard (localhost:8787)."
+echo "  Make sure the dashboard is running (pm2 list) for browser commands to work."
+echo ""
+ask "Press Enter to continue..."
+read -r
+
 # ---------------------------------------------------------------------------
-# Step 8: Health verification
+# Step 10: Health verification
 # ---------------------------------------------------------------------------
 
 echo ""
@@ -274,14 +376,21 @@ fi
 echo ""
 log "=== Setup Complete ==="
 echo ""
-echo "  ┌──────────────────────────────────────────────────┐"
-echo "  │  Services                                        │"
-echo "  ├──────────────────────────────────────────────────┤"
-echo "  │  Dashboard:  http://localhost:8787               │"
-echo "  │  Health:     http://localhost:8787/health        │"
-echo "  │  Discord:    Bot responds in configured channels │"
-echo "  │  MCP:        Run 'claude' in this directory      │"
-echo "  └──────────────────────────────────────────────────┘"
+echo "  ┌────────────────────────────────────────────────────────┐"
+echo "  │  Services                                              │"
+echo "  ├────────────────────────────────────────────────────────┤"
+echo "  │  Dashboard:  http://localhost:8787                     │"
+echo "  │  Health:     http://localhost:8787/health              │"
+echo "  │  Discord:    Bot responds in configured channels       │"
+echo "  │  MCP:        Run 'claude' in this directory            │"
+echo "  │  Browser:    Chrome extension (62 automation commands) │"
+echo "  │  Email:      SMTP for reports & notifications          │"
+echo "  └────────────────────────────────────────────────────────┘"
+echo ""
+echo "  Next steps:"
+echo "    • Install Chrome extension: chrome://extensions → Load unpacked → browser-extension/"
+echo "    • Add SSH key to GitHub for automated report publishing"
+echo "    • Configure scheduled tasks (daily reports, monitors)"
 echo ""
 echo "  Skills available (slash commands in Claude Code):"
 echo "    /dev          — Structured development lifecycle"
@@ -297,6 +406,6 @@ echo "  Useful commands:"
 echo "    pm2 list                     — Check service status"
 echo "    pm2 logs justclaw-discord    — View bot logs"
 echo "    npm run deploy               — Safe deploy with rollback"
-echo "    npm test                     — Run 193 tests"
+echo "    npm test                     — Run tests"
 echo "    curl localhost:8787/health   — Verify services"
 echo ""

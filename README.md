@@ -115,7 +115,14 @@ cd justclaw
 bash scripts/setup.sh
 ```
 
-The setup script checks prerequisites, installs missing tools, walks you through Discord configuration, and starts services.
+The setup script walks you through everything:
+1. **Prerequisites** — Node.js 20+, Claude Code CLI, PM2, build tools
+2. **Dependencies** — `npm install`
+3. **Configuration** — Discord bot token, SMTP email, dashboard password
+4. **Build & test** — TypeScript compilation, test suite
+5. **Git & SSH** — identity config, SSH key generation for GitHub
+6. **Services** — PM2 start, health verification
+7. **Chrome extension** — browser automation (62 commands)
 
 ### MCP Server Only (no Discord)
 
@@ -127,12 +134,21 @@ npm install && npm run build
 
 Run `claude` from this directory. The `.mcp.json` auto-registers all 49 tools.
 
+### Chrome Extension (Browser Bridge)
+
+The browser bridge gives justclaw 62 browser automation commands (screenshots, form fill, data extraction, etc):
+
+1. Open `chrome://extensions`
+2. Enable **Developer mode** (top-right toggle)
+3. Click **Load unpacked** → select the `browser-extension/` folder
+4. Ensure the dashboard is running (`pm2 list`) — the extension communicates via `localhost:8787`
+
 ### Manual Setup
 
 ```bash
 npm install
 npm run build
-cp .env.example .env        # Edit with your Discord bot token
+cp .env.example .env        # Edit with your tokens and SMTP config
 pm2 start ecosystem.config.cjs
 ```
 
