@@ -42,9 +42,9 @@ describe('Session persistence (Phase 1)', () => {
     expect(tables).toContain('sessions');
   });
 
-  it('schema version is 11', () => {
+  it('schema version is current', () => {
     const row = db.fetchone("SELECT value FROM schema_meta WHERE key='version'");
-    expect(Number(row!.value)).toBe(11);
+    expect(Number(row!.value)).toBeGreaterThanOrEqual(12);
   });
 
   it('sessions table has all expected columns', () => {

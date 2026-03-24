@@ -1,4 +1,4 @@
-# Database Schema (v11)
+# Database Schema (v12)
 
 SQLite with WAL mode, FTS5. Schema defined in `src/db.ts` with automatic migration.
 
@@ -17,7 +17,9 @@ SQLite with WAL mode, FTS5. Schema defined in `src/db.ts` with automatic migrati
 | `sessions` | channel_id (PK), session_id, turn_count, last_used_at, context_hint | v10: persistent session IDs for `--resume` across restarts |
 | `daily_log` | date, entry, category | Append-only activity journal |
 | `state` | key (PK), value | KV store + suspicious_pid_* entries |
-| `schema_meta` | key (PK), value | Version tracking (currently v11) |
+| `notebooks` | name (UNIQUE), source_path, mode, total_files, total_chunks, total_tokens | v12: named document collections for NotebookLM-style analysis |
+| `document_chunks` | notebook_id (FK), file_path, file_name, chunk_index, content, line_start, line_end, token_estimate | v12: source content segments with FTS5 via `chunks_fts` |
+| `schema_meta` | key (PK), value | Version tracking (currently v12) |
 
 ### Sessions Table (v10)
 | Column | Type | Default | Notes |

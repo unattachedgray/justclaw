@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 
-const SCHEMA_VERSION = 11;
+const SCHEMA_VERSION = 12;
 
 const SCHEMA_SQL = `
 -- Memories: durable facts, preferences, decisions, context.
@@ -200,6 +200,52 @@ CREATE TABLE IF NOT EXISTS learnings (
 CREATE INDEX IF NOT EXISTS idx_learnings_category ON learnings(category);
 CREATE INDEX IF NOT EXISTS idx_learnings_area ON learnings(area);
 
+-- Notebooks: named document collections for NotebookLM-style analysis.
+CREATE TABLE IF NOT EXISTS notebooks (
+    id            INTEGER PRIMARY KEY,
+    name          TEXT    UNIQUE NOT NULL,
+    source_path   TEXT    NOT NULL,
+    mode          TEXT    NOT NULL DEFAULT 'auto',
+    total_files   INTEGER NOT NULL DEFAULT 0,
+    total_chunks  INTEGER NOT NULL DEFAULT 0,
+    total_tokens  INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Document chunks: source content split into retrievable segments.
+CREATE TABLE IF NOT EXISTS document_chunks (
+    id            INTEGER PRIMARY KEY,
+    notebook_id   INTEGER NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+    file_path     TEXT    NOT NULL,
+    file_name     TEXT    NOT NULL,
+    chunk_index   INTEGER NOT NULL DEFAULT 0,
+    content       TEXT    NOT NULL,
+    line_start    INTEGER NOT NULL DEFAULT 1,
+    line_end      INTEGER NOT NULL DEFAULT 1,
+    token_estimate INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_chunks_notebook ON document_chunks(notebook_id);
+CREATE INDEX IF NOT EXISTS idx_chunks_file ON document_chunks(notebook_id, file_path);
+
+-- FTS5 for document chunk content search (BM25 ranking).
+CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+    file_name, content,
+    content=document_chunks,
+    content_rowid=id
+);
+
+CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON document_chunks BEGIN
+    INSERT INTO chunks_fts(rowid, file_name, content)
+    VALUES (new.id, new.file_name, new.content);
+END;
+
+CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON document_chunks BEGIN
+    INSERT INTO chunks_fts(chunks_fts, rowid, file_name, content)
+    VALUES ('delete', old.id, old.file_name, old.content);
+END;
+
 -- Session persistence: session IDs survive bot restarts for --resume.
 CREATE TABLE IF NOT EXISTS sessions (
     channel_id    TEXT PRIMARY KEY,
@@ -353,6 +399,47 @@ const MIGRATIONS: Record<number, string[]> = {
     "CREATE INDEX IF NOT EXISTS idx_tasks_status_priority ON tasks(status, priority) WHERE status IN ('pending', 'active')",
     "CREATE INDEX IF NOT EXISTS idx_tasks_due_at ON tasks(due_at) WHERE status = 'pending' AND recurrence IS NOT NULL",
     "CREATE INDEX IF NOT EXISTS idx_daily_log_date ON daily_log(date)",
+  ],
+  12: [
+    // Notebooks: document collections for NotebookLM-style analysis.
+    `CREATE TABLE IF NOT EXISTS notebooks (
+        id            INTEGER PRIMARY KEY,
+        name          TEXT    UNIQUE NOT NULL,
+        source_path   TEXT    NOT NULL,
+        mode          TEXT    NOT NULL DEFAULT 'auto',
+        total_files   INTEGER NOT NULL DEFAULT 0,
+        total_chunks  INTEGER NOT NULL DEFAULT 0,
+        total_tokens  INTEGER NOT NULL DEFAULT 0,
+        created_at    TEXT    NOT NULL DEFAULT (datetime('now')),
+        updated_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS document_chunks (
+        id            INTEGER PRIMARY KEY,
+        notebook_id   INTEGER NOT NULL REFERENCES notebooks(id) ON DELETE CASCADE,
+        file_path     TEXT    NOT NULL,
+        file_name     TEXT    NOT NULL,
+        chunk_index   INTEGER NOT NULL DEFAULT 0,
+        content       TEXT    NOT NULL,
+        line_start    INTEGER NOT NULL DEFAULT 1,
+        line_end      INTEGER NOT NULL DEFAULT 1,
+        token_estimate INTEGER NOT NULL DEFAULT 0,
+        created_at    TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    "CREATE INDEX IF NOT EXISTS idx_chunks_notebook ON document_chunks(notebook_id)",
+    "CREATE INDEX IF NOT EXISTS idx_chunks_file ON document_chunks(notebook_id, file_path)",
+    `CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+        file_name, content,
+        content=document_chunks,
+        content_rowid=id
+    )`,
+    `CREATE TRIGGER IF NOT EXISTS chunks_ai AFTER INSERT ON document_chunks BEGIN
+        INSERT INTO chunks_fts(rowid, file_name, content)
+        VALUES (new.id, new.file_name, new.content);
+    END`,
+    `CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON document_chunks BEGIN
+        INSERT INTO chunks_fts(chunks_fts, rowid, file_name, content)
+        VALUES ('delete', old.id, old.file_name, old.content);
+    END`,
   ],
 };
 
