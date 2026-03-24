@@ -459,9 +459,9 @@ describe('Schema v13', () => {
     expect((chunksAfter[0].c as number)).toBe(0);
   });
 
-  it('schema version is 13', () => {
+  it('schema version is current', () => {
     const row = db.fetchone("SELECT value FROM schema_meta WHERE key='version'");
-    expect(Number(row!.value)).toBe(13);
+    expect(Number(row!.value)).toBeGreaterThanOrEqual(14);
   });
 });
 

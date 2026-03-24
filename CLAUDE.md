@@ -49,7 +49,7 @@ pm2 save                           # Persist for reboot
 |------|---------|
 | `src/index.ts` | MCP server entry: PID mgmt, signals, stdio transport |
 | `src/server.ts` | Registers all 30 MCP tools |
-| `src/db.ts` | SQLite schema v12, FTS5, migrations, integrity check, backup |
+| `src/db.ts` | SQLite schema v14, FTS5, migrations, integrity check, backup |
 | `src/process-registry.ts` | PID tracking, safety scoring, suspicious detection, malfunction escalation |
 | `src/discord/bot.ts` | Discord bot: streaming progress, per-channel queue, circuit breaker, graceful shutdown |
 | `src/discord/heartbeat.ts` | Heartbeat orchestrator: deterministic checks, dedup, presence flash, escalation |
@@ -61,11 +61,14 @@ pm2 save                           # Persist for reboot
 | `src/discord/session-context.ts` | Session continuity: identity preamble, rotation logic, flush thresholds |
 | `src/claude-spawn.ts` | Shared Claude CLI utilities: findClaudeBin, buildClaudeEnv, buildShellCmd, spawnClaudeP |
 | `src/notebooks.ts` | NotebookLM-style document analysis: ingestion, chunking, FTS5 search, source grounding |
+| `src/monitors.ts` | Metric monitoring engine: URL/command sources, extractors, condition evaluation |
+| `src/monitor-tools.ts` | Monitor MCP tools: create, list, check, history, update, delete |
+| `src/extractors.ts` | Multi-format document extraction: PDF, DOCX, XLSX, PPTX, HTML, EPUB, images |
 | `scripts/prediction-tracker.ts` | Deterministic investment prediction tracker (CLI, JSON-backed) |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
 | `.mcp.json` | MCP server config — **must include `JUSTCLAW_NO_DASHBOARD: "1"`** |
 
-## MCP Tools (43)
+## MCP Tools (49)
 
 Memory (6): save, search, recall, forget, list, consolidate — FTS5, namespaces, access tracking
 Tasks (6): create, update, list, next, claim, complete — dependencies, agent claiming, auto-execute
@@ -248,6 +251,7 @@ Six-layer system that makes every session feel like the same agent waking up. Wo
 | `/build [prd]` | PRD-driven autonomous build loop with plan verification and quality gates |
 | `/newskill [desc]` | Research popular implementations, security audit, build custom skill |
 | `/notebook <cmd> <name>` | **NotebookLM-style document analysis** — ingest folder, query with source citations, generate overviews/FAQs |
+| `/monitor <cmd> [name]` | **Metric monitoring** — track prices, uptime, web changes, custom metrics. Alerts via Discord. |
 | `/security-audit` | On-demand security audit (secrets, permissions, ports, deps) |
 
 ## Compaction Instructions

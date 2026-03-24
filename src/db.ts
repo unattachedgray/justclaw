@@ -2,7 +2,7 @@ import Database from 'better-sqlite3';
 import { mkdirSync } from 'fs';
 import { dirname } from 'path';
 
-const SCHEMA_VERSION = 13;
+const SCHEMA_VERSION = 14;
 
 const SCHEMA_SQL = `
 -- Memories: durable facts, preferences, decisions, context.
@@ -247,6 +247,39 @@ CREATE TRIGGER IF NOT EXISTS chunks_ad AFTER DELETE ON document_chunks BEGIN
     VALUES ('delete', old.id, old.file_name, old.content);
 END;
 
+-- Monitors: configurable metric watchers (price, uptime, web changes, custom).
+CREATE TABLE IF NOT EXISTS monitors (
+    id              INTEGER PRIMARY KEY,
+    name            TEXT    UNIQUE NOT NULL,
+    description     TEXT    NOT NULL DEFAULT '',
+    source_type     TEXT    NOT NULL,
+    source_config   TEXT    NOT NULL,
+    extractor_type  TEXT    NOT NULL DEFAULT 'stdout',
+    extractor_config TEXT   NOT NULL DEFAULT '',
+    condition_type  TEXT    NOT NULL DEFAULT 'change_any',
+    condition_config TEXT   NOT NULL DEFAULT '{}',
+    interval_cron   TEXT    NOT NULL DEFAULT '*/15 * * * *',
+    notify_channel  TEXT,
+    enabled         INTEGER NOT NULL DEFAULT 1,
+    last_value      TEXT,
+    last_status     TEXT    NOT NULL DEFAULT 'pending',
+    last_checked_at TEXT,
+    consecutive_alerts INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+    updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Monitor history: time-series of check results.
+CREATE TABLE IF NOT EXISTS monitor_history (
+    id          INTEGER PRIMARY KEY,
+    monitor_id  INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+    value       TEXT,
+    status      TEXT    NOT NULL,
+    message     TEXT    NOT NULL DEFAULT '',
+    checked_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+);
+CREATE INDEX IF NOT EXISTS idx_monitor_history_monitor ON monitor_history(monitor_id, checked_at);
+
 -- Session persistence: session IDs survive bot restarts for --resume.
 CREATE TABLE IF NOT EXISTS sessions (
     channel_id    TEXT PRIMARY KEY,
@@ -445,6 +478,37 @@ const MIGRATIONS: Record<number, string[]> = {
   13: [
     // Incremental re-indexing: track file modification time to skip unchanged files.
     "ALTER TABLE document_chunks ADD COLUMN file_mtime TEXT DEFAULT NULL",
+  ],
+  14: [
+    `CREATE TABLE IF NOT EXISTS monitors (
+        id              INTEGER PRIMARY KEY,
+        name            TEXT    UNIQUE NOT NULL,
+        description     TEXT    NOT NULL DEFAULT '',
+        source_type     TEXT    NOT NULL,
+        source_config   TEXT    NOT NULL,
+        extractor_type  TEXT    NOT NULL DEFAULT 'stdout',
+        extractor_config TEXT   NOT NULL DEFAULT '',
+        condition_type  TEXT    NOT NULL DEFAULT 'change_any',
+        condition_config TEXT   NOT NULL DEFAULT '{}',
+        interval_cron   TEXT    NOT NULL DEFAULT '*/15 * * * *',
+        notify_channel  TEXT,
+        enabled         INTEGER NOT NULL DEFAULT 1,
+        last_value      TEXT,
+        last_status     TEXT    NOT NULL DEFAULT 'pending',
+        last_checked_at TEXT,
+        consecutive_alerts INTEGER NOT NULL DEFAULT 0,
+        created_at      TEXT    NOT NULL DEFAULT (datetime('now')),
+        updated_at      TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    `CREATE TABLE IF NOT EXISTS monitor_history (
+        id          INTEGER PRIMARY KEY,
+        monitor_id  INTEGER NOT NULL REFERENCES monitors(id) ON DELETE CASCADE,
+        value       TEXT,
+        status      TEXT    NOT NULL,
+        message     TEXT    NOT NULL DEFAULT '',
+        checked_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+    )`,
+    "CREATE INDEX IF NOT EXISTS idx_monitor_history_monitor ON monitor_history(monitor_id, checked_at)",
   ],
 };
 

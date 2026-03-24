@@ -15,6 +15,7 @@ import { getLogger } from '../logger.js';
 import { runAllChecks, type HeartbeatReport } from './heartbeat-checks.js';
 import { markIssueSeen, markIssueResolved, shouldEscalate, escalate, formatRecommendations } from './escalation.js';
 import { checkAndRunScheduledTasks } from './scheduled-tasks.js';
+import { checkDueMonitors, formatMonitorAlert } from '../monitors.js';
 import { runAwarenessChecks, isWithinActiveHours, getMessageBudget, spendMessageBudget, formatAwarenessMessage } from './awareness.js';
 import { anticipate, formatAnticipation } from './anticipation.js';
 import { loadConfig } from '../config.js';
@@ -269,6 +270,24 @@ export function startHeartbeat(opts: HeartbeatOpts): { stop: () => void; runNow:
       checkAndRunScheduledTasks(opts.db, opts.client, opts.channelId).catch((err) => {
         log.error('Scheduled task check failed', { error: String(err) });
       });
+
+      // Check due monitors and post alerts to their configured channels.
+      try {
+        const monitorResults = await checkDueMonitors(opts.db);
+        for (const r of monitorResults) {
+          if (r.status === 'alert') {
+            const mon = opts.db.fetchone('SELECT * FROM monitors WHERE id = ?', [r.monitorId]);
+            if (mon) {
+              const alertText = formatMonitorAlert(mon as { name: string; description: string; consecutive_alerts: number }, r);
+              const targetId = (mon.notify_channel as string) || opts.channelId;
+              try {
+                const ch = await opts.client.channels.fetch(targetId);
+                if (ch && 'send' in ch) await (ch as { send: (msg: string) => Promise<unknown> }).send(alertText);
+              } catch (e: unknown) { log.warn('Monitor alert send failed', { monitor: r.name, error: String(e) }); }
+            }
+          }
+        }
+      } catch (err) { log.warn('Monitor check failed', { error: String(err) }); }
 
       // Memory consolidation: every 72 cycles (~6h), clean up expired memories.
       if (state.totalChecks % 72 === 0 && state.totalChecks > 0) {
