@@ -25,7 +25,7 @@ justclaw is a **persistence and automation layer** for Claude Code CLI. It makes
 ## Current Status (as of 2026-03-21)
 
 ### Completed
-- [x] Core MCP server with 36 tools (memory, tasks, context, conversations, goals, learnings, state, process, system)
+- [x] Core MCP server with 49 tools (memory, tasks, context, conversations, goals, learnings, state, process, system, notebooks, monitors, anticipation)
 - [x] SQLite schema v2 with FTS5 for memories AND conversations
 - [x] Memory namespaces (`global`, `project:<name>`, `session:<id>`)
 - [x] Memory access tracking (`access_count`, `last_accessed`)
@@ -178,7 +178,7 @@ Most memory MCP servers do one thing (memory). justclaw bundles **memory + tasks
 JUSTCLAW/
   src/
     index.ts              — Entry point: PID management, signals, dashboard spawn, stdio
-    server.ts             — MCP server creation, registers all 30 tools
+    server.ts             — MCP server creation, registers all 49 tools
     cron.ts               — 5-field cron expression parser (minute/hour/dom/month/dow)
     db.ts                 — SQLite schema v2, FTS5 triggers, migration system
     config.ts             — TOML config loader (smol-toml)

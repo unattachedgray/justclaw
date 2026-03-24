@@ -1,6 +1,6 @@
 # justclaw — Persistence & automation layer for Claude Code CLI
 
-SQLite-backed MCP server (30 tools) + Discord bot + deterministic heartbeat + self-healing process management. TypeScript, Node.js 20+, Linux.
+SQLite-backed MCP server (49 tools) + Chrome browser bridge (62 commands) + Discord bot + deterministic heartbeat + self-healing process management. TypeScript, Node.js 20+, Linux.
 
 **Philosophy**: Deterministic code first, LLM only when reasoning is genuinely needed. Claude Code CLI is the brain; justclaw is the long-term memory, task queue, and lifecycle harness.
 
@@ -24,13 +24,13 @@ SQLite-backed MCP server (30 tools) + Discord bot + deterministic heartbeat + se
 ## Architecture
 
 ```
-Claude Code CLI → justclaw MCP Server (stdio, 30 tools)
+Claude Code CLI → justclaw MCP Server (stdio, 49 tools)
                          ↓
-              SQLite (data/charlie.db, WAL, FTS5, schema v12)
+              SQLite (data/charlie.db, WAL, FTS5, schema v14)
                     ↓         ↓              ↓              ↓
-              Dashboard   Discord Bot    Heartbeat (deterministic)
-              Hono:8787   discord.js     9 checks, <1s, $0/cycle
-              read-only   streams claude  + LLM escalation on persist
+              Dashboard   Discord Bot    Heartbeat       Browser Bridge
+              Hono:8787   discord.js     9 checks        Chrome extension
+              read-only   streams claude  + LLM escal.   62 commands
 ```
 
 ## Build & Run
@@ -48,7 +48,7 @@ pm2 save                           # Persist for reboot
 | File | Purpose |
 |------|---------|
 | `src/index.ts` | MCP server entry: PID mgmt, signals, stdio transport |
-| `src/server.ts` | Registers all 30 MCP tools |
+| `src/server.ts` | Registers all 49 MCP tools |
 | `src/db.ts` | SQLite schema v14, FTS5, migrations, integrity check, backup |
 | `src/process-registry.ts` | PID tracking, safety scoring, suspicious detection, malfunction escalation |
 | `src/discord/bot.ts` | Discord bot: streaming progress, per-channel queue, circuit breaker, graceful shutdown |
@@ -67,7 +67,68 @@ pm2 save                           # Persist for reboot
 | `src/extractors.ts` | Multi-format document extraction: PDF, DOCX, XLSX, PPTX, HTML, EPUB, images |
 | `scripts/prediction-tracker.ts` | Deterministic investment prediction tracker (CLI, JSON-backed) |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
+| `browser-extension/` | Chrome extension: browser bridge with 62 automation commands |
 | `.mcp.json` | MCP server config — **must include `JUSTCLAW_NO_DASHBOARD: "1"`** |
+
+## Browser Bridge (Chrome Extension)
+
+Chrome extension (`browser-extension/`) that gives justclaw full browser automation. Communicates via dashboard API — justclaw queues commands, extension executes them and posts results.
+
+**Dashboard API endpoints** (auth-free, localhost-only):
+- `POST /api/extension-commands` — queue a command or post a result
+- `GET /api/extension-commands` — extension polls for pending commands
+- `GET /api/extension-commands/:id` — check result of a specific command
+- `POST /api/usage-calibration` — receive Claude usage data
+- `GET /api/extension-status` — check if extension is connected
+
+**62 commands in 3 phases:**
+
+### Core (from NanoClaw, rebranded)
+Tab management, screenshots (full/element/sequence), click/hover, form fill/submit, select options, press keys, wait for selector, scroll, navigate, DOM queries, CSS styles, cookies, local/session storage, console capture, network interception (fetch/XHR/WebSocket), React DevTools (fiber tree, hooks, state), app state (Redux/Zustand/Next.js), layout issue detection, execute script, multi-step workflows, tab listing/adoption/reload.
+
+### Phase 1 — CDP Quick Wins
+| Command | What it does |
+|---------|-------------|
+| `handle_dialog` | Auto-accept/dismiss alert/confirm/prompt dialogs via CDP |
+| `print_pdf` | Print any page to PDF (configurable margins, orientation, page ranges) |
+| `file_upload` | Set files on `<input type="file">` via CDP DOM.setFileInputFiles |
+| `go_back` / `go_forward` | Browser history navigation via CDP Page.navigateToHistoryEntry |
+| `clipboard_read` / `clipboard_write` | Read/write system clipboard |
+| `network_throttle` | Presets: `slow3g`, `3g`, `4g`, `offline`, `none`, or custom throughput/latency |
+| `set_geolocation` / `clear_geolocation` | Spoof GPS coordinates via CDP Emulation |
+
+### Phase 2 — Browser Internals
+| Command | What it does |
+|---------|-------------|
+| `drag_drop` | Full drag-and-drop with synthesized DragEvent sequence |
+| `list_frames` / `read_frame` / `execute_in_frame` | iframe content access via webNavigation API |
+| `query_shadow_dom` | Recursive shadow DOM piercing (depth 10, configurable host) |
+| `start_har_capture` / `stop_har_capture` | Full HAR 1.2 network timeline with timing data |
+| `get_full_accessibility_tree` | CDP Accessibility.getFullAXTree — structured element refs without screenshots |
+| `emulate_device` / `clear_emulation` | 9 presets (iPhone 16, Pixel 9, iPad, Galaxy S24, desktop) + custom + touch |
+
+### Phase 3 — AI-Agent Differentiators
+| Command | What it does |
+|---------|-------------|
+| `extract_structured` | Schema-driven data extraction — define fields, get typed JSON from any page |
+| `extract_tables` | Auto-parse HTML tables with headers into structured row objects |
+| `extract_metadata` | JSON-LD, OpenGraph, Twitter Cards, RSS feeds, meta tags, canonical URL |
+| `annotate_interactive` | Set-of-Mark: numbered red labels on interactive elements + screenshot (WebVoyager-style) |
+| `find_element` | Natural language element search — "login button" → scored candidates with selectors |
+| `resilient_click` / `resilient_fill` | Self-healing selectors: 6-strategy fallback (selector → cache → aria → text → role → tag) with persistent cache |
+
+**Usage from justclaw:** Queue commands via the dashboard API:
+```bash
+# Queue a command
+curl -X POST http://localhost:8787/api/extension-commands \
+  -H 'Content-Type: application/json' \
+  -d '{"type":"read_page","url":"https://example.com","screenshot":true}'
+
+# Check result
+curl http://localhost:8787/api/extension-commands/<cmd-id>
+```
+
+**Installation:** Load unpacked from `browser-extension/` in `chrome://extensions` (Developer mode).
 
 ## MCP Tools (49)
 

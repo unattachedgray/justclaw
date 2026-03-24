@@ -492,5 +492,154 @@ export function createApiRoutes(db: DB): Hono {
     });
   });
 
+  // ── Browser Extension Bridge ──
+
+  // In-memory command queue for the browser extension
+  // Commands are queued by agents/API, picked up by the extension via polling
+  interface ExtensionCommand {
+    id: string;
+    type: string;
+    createdAt: number;
+    pickedUp: boolean;
+    result?: unknown;
+    completedAt?: number;
+    [key: string]: unknown;
+  }
+
+  const extensionCommands: ExtensionCommand[] = [];
+  const MAX_EXTENSION_COMMANDS = 100;
+  const COMMAND_TTL_MS = 5 * 60 * 1000; // 5 min TTL
+
+  function pruneExtensionCommands(): void {
+    const now = Date.now();
+    while (extensionCommands.length > 0 && now - extensionCommands[0].createdAt > COMMAND_TTL_MS) {
+      extensionCommands.shift();
+    }
+    while (extensionCommands.length > MAX_EXTENSION_COMMANDS) {
+      extensionCommands.shift();
+    }
+  }
+
+  // GET /api/extension-commands — extension polls for pending commands
+  api.get('/extension-commands', (c) => {
+    pruneExtensionCommands();
+    const pickup = c.req.query('pickup') === 'true';
+    const pending = extensionCommands.filter((cmd) => !cmd.pickedUp && !cmd.result);
+
+    if (pickup) {
+      for (const cmd of pending) {
+        cmd.pickedUp = true;
+      }
+    }
+
+    return c.json({ commands: pending });
+  });
+
+  // POST /api/extension-commands — queue a new command OR post a result
+  api.post('/extension-commands', async (c) => {
+    const body = await c.req.json();
+
+    // If body has cmdId + result, it's a result post from the extension
+    if (body.cmdId && body.result !== undefined) {
+      const cmd = extensionCommands.find((cmd) => cmd.id === body.cmdId);
+      if (cmd) {
+        cmd.result = body.result;
+        cmd.completedAt = Date.now();
+      }
+      return c.json({ ok: true });
+    }
+
+    // Otherwise it's a new command to queue
+    pruneExtensionCommands();
+    const id = body.id || `cmd-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+    const cmd: ExtensionCommand = {
+      id,
+      type: body.type,
+      createdAt: Date.now(),
+      pickedUp: false,
+      ...body,
+    };
+    extensionCommands.push(cmd);
+    return c.json({ queued: true, id });
+  });
+
+  // GET /api/extension-commands/:id — check result of a specific command
+  api.get('/extension-commands/:id', (c) => {
+    const id = c.req.param('id');
+    const cmd = extensionCommands.find((cmd) => cmd.id === id);
+    if (!cmd) return c.json({ error: 'Command not found' }, 404);
+    return c.json(cmd);
+  });
+
+  // POST /api/usage-calibration — receive usage data from the extension
+  api.post('/usage-calibration', async (c) => {
+    const data = await c.req.json();
+    const now = new Date().toISOString();
+
+    // Store in state table for persistence
+    try {
+      db.execute(
+        "INSERT OR REPLACE INTO state (key, value) VALUES ('extension_usage', ?)",
+        [JSON.stringify({ ...data, receivedAt: now })],
+      );
+      db.execute(
+        "INSERT OR REPLACE INTO state (key, value) VALUES ('extension_last_seen', ?)",
+        [now],
+      );
+    } catch (err) {
+      log.error('Failed to store usage data', { error: String(err) });
+    }
+
+    log.info('Usage calibration received', {
+      session: data.session,
+      weeklyAll: data.weeklyAll,
+      plan: data.planInfo,
+    });
+
+    return c.json({ ok: true, receivedAt: now });
+  });
+
+  // GET /api/usage-calibration — read last usage data
+  api.get('/usage-calibration', (c) => {
+    const row = db.fetchone("SELECT value FROM state WHERE key = 'extension_usage'");
+    if (!row) return c.json({ error: 'No usage data yet' }, 404);
+    try {
+      return c.json(JSON.parse(row.value as string));
+    } catch {
+      return c.json({ error: 'Corrupt usage data' }, 500);
+    }
+  });
+
+  // GET /api/extension-status — check if extension is connected
+  api.get('/extension-status', (c) => {
+    const lastSeen = db.fetchone("SELECT value FROM state WHERE key = 'extension_last_seen'");
+    const usage = db.fetchone("SELECT value FROM state WHERE key = 'extension_usage'");
+
+    let connected = false;
+    let lastSeenAt: string | null = null;
+    if (lastSeen) {
+      lastSeenAt = lastSeen.value as string;
+      const age = Date.now() - new Date(lastSeenAt).getTime();
+      connected = age < 15 * 60 * 1000; // Connected if seen within 15 min
+    }
+
+    let usageData = null;
+    if (usage) {
+      try { usageData = JSON.parse(usage.value as string); } catch { /* ignore */ }
+    }
+
+    return c.json({
+      connected,
+      lastSeenAt,
+      pendingCommands: extensionCommands.filter((cmd) => !cmd.pickedUp && !cmd.result).length,
+      usage: usageData ? {
+        session: usageData.session,
+        weeklyAll: usageData.weeklyAll,
+        weeklySonnet: usageData.weeklySonnet,
+        planInfo: usageData.planInfo,
+      } : null,
+    });
+  });
+
   return api;
 }

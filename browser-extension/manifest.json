@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "justclaw Browser Bridge",
+  "version": "1.0",
+  "description": "Browser bridge for justclaw — usage monitoring, full browser automation, debugging, screenshots, interaction",
+  "permissions": ["activeTab", "scripting", "alarms", "tabs", "storage", "cookies", "debugger", "clipboardRead", "clipboardWrite", "downloads", "webNavigation"],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "16": "icon16.png",
+      "48": "icon48.png",
+      "128": "icon128.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://claude.ai/settings/usage*"],
+      "js": ["content.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "icons": {
+    "16": "icon16.png",
+    "48": "icon48.png",
+    "128": "icon128.png"
+  }
+}

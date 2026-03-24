@@ -133,6 +133,8 @@ function main(): void {
   app.use('*', async (c, next) => {
     const path = c.req.path;
     if (path === '/login' || path === '/logout' || path === '/health') return next();
+    // Extension bridge endpoints are auth-free (localhost-only, polled by Chrome extension)
+    if (path.startsWith('/api/extension-commands') || path.startsWith('/api/usage-calibration') || path === '/api/extension-status') return next();
 
     const cookie = c.req.header('cookie');
     const token = getSessionFromCookie(cookie);
