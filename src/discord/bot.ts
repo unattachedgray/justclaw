@@ -28,10 +28,9 @@ import { loadConfig, resolveDbPath } from '../config.js';
 import { getLogger } from '../logger.js';
 import { registerProcess, retireProcess } from '../process-registry.js';
 import { startHeartbeat } from './heartbeat.js';
+import { DISCORD_MAX_LENGTH, splitMessage } from './discord-utils.js';
 
 const log = getLogger('discord');
-
-const DISCORD_MAX_LENGTH = 2000;
 
 /** Active claude -p child PIDs — tracked so heartbeat can distinguish legitimate from orphan. */
 export const activeClaudePids = new Set<number>();
@@ -79,24 +78,6 @@ interface ChannelState {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function splitMessage(text: string): string[] {
-  if (text.length <= DISCORD_MAX_LENGTH) return [text];
-  const chunks: string[] = [];
-  let remaining = text;
-  while (remaining.length > 0) {
-    if (remaining.length <= DISCORD_MAX_LENGTH) {
-      chunks.push(remaining);
-      break;
-    }
-    let splitIdx = remaining.lastIndexOf('\n', DISCORD_MAX_LENGTH);
-    if (splitIdx <= 0) splitIdx = remaining.lastIndexOf(' ', DISCORD_MAX_LENGTH);
-    if (splitIdx <= 0) splitIdx = DISCORD_MAX_LENGTH;
-    chunks.push(remaining.slice(0, splitIdx));
-    remaining = remaining.slice(splitIdx).replace(/^[\n ]/, '');
-  }
-  return chunks;
-}
 
 function findClaudeBin(): string {
   const home = process.env.HOME || '';

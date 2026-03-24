@@ -2,6 +2,8 @@
 
 Standalone Node.js process managed by pm2 (`justclaw-discord`). Connects via `discord.js`, responds using `claude -p`.
 
+Shared utilities (message splitting, constants) live in `src/discord/discord-utils.ts`.
+
 ## Message Flow
 
 1. User sends message → logged to `conversations` table (channel: `discord`)
