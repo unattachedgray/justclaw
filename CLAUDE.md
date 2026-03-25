@@ -72,132 +72,11 @@ pm2 save                           # Persist for reboot
 
 ## Browser Bridge (Chrome Extension)
 
-Chrome extension (`browser-extension/`) that gives justclaw full browser automation. Communicates via dashboard API — justclaw queues commands, extension executes them and posts results.
+70-command browser automation via Chrome extension. Read pages, screenshot, fill forms, extract structured data, click elements, capture network traffic, emulate devices, and more. Commands queued via dashboard API, extension polls and executes.
 
-**Dashboard API endpoints** (auth-free, localhost-only):
-- `POST /api/extension-commands` — queue a command or post a result
-- `GET /api/extension-commands` — extension polls for pending commands
-- `GET /api/extension-commands/:id` — check result of a specific command
-- `POST /api/usage-calibration` — receive Claude usage data
-- `GET /api/extension-status` — check if extension is connected
+Key capabilities: tab management, screenshots, click/fill/submit, cookies, console/network/WebSocket capture, React DevTools, schema-driven extraction, Set-of-Mark annotation, natural language element search, self-healing selectors, iframe/shadow DOM access, HAR export, device emulation, print to PDF.
 
-**70 commands in 3 phases:**
-
-### Core (from NanoClaw, rebranded)
-Tab management, screenshots (full/element/sequence), click/hover, form fill/submit, select options, press keys, wait for selector, scroll, navigate, DOM queries, CSS styles, cookies, local/session storage, console capture, network interception (fetch/XHR/WebSocket), React DevTools (fiber tree, hooks, state), app state (Redux/Zustand/Next.js), layout issue detection, execute script, multi-step workflows, tab listing/adoption/reload.
-
-### Phase 1 — CDP Quick Wins
-| Command | What it does |
-|---------|-------------|
-| `handle_dialog` | Auto-accept/dismiss alert/confirm/prompt dialogs via CDP |
-| `print_pdf` | Print any page to PDF (configurable margins, orientation, page ranges) |
-| `file_upload` | Set files on `<input type="file">` via CDP DOM.setFileInputFiles |
-| `go_back` / `go_forward` | Browser history navigation via CDP Page.navigateToHistoryEntry |
-| `clipboard_read` / `clipboard_write` | Read/write system clipboard |
-| `network_throttle` | Presets: `slow3g`, `3g`, `4g`, `offline`, `none`, or custom throughput/latency |
-| `set_geolocation` / `clear_geolocation` | Spoof GPS coordinates via CDP Emulation |
-
-### Phase 2 — Browser Internals
-| Command | What it does |
-|---------|-------------|
-| `drag_drop` | Full drag-and-drop with synthesized DragEvent sequence |
-| `list_frames` / `read_frame` / `execute_in_frame` | iframe content access via webNavigation API |
-| `query_shadow_dom` | Recursive shadow DOM piercing (depth 10, configurable host) |
-| `start_har_capture` / `stop_har_capture` | Full HAR 1.2 network timeline with timing data |
-| `get_full_accessibility_tree` | CDP Accessibility.getFullAXTree — structured element refs without screenshots |
-| `emulate_device` / `clear_emulation` | 9 presets (iPhone 16, Pixel 9, iPad, Galaxy S24, desktop) + custom + touch |
-
-### Phase 3 — AI-Agent Differentiators
-| Command | What it does |
-|---------|-------------|
-| `extract_structured` | Schema-driven data extraction — define fields, get typed JSON from any page |
-| `extract_tables` | Auto-parse HTML tables with headers into structured row objects |
-| `extract_metadata` | JSON-LD, OpenGraph, Twitter Cards, RSS feeds, meta tags, canonical URL |
-| `annotate_interactive` | Set-of-Mark: numbered red labels on interactive elements + screenshot (WebVoyager-style) |
-| `find_element` | Natural language element search — "login button" → scored candidates with selectors |
-| `resilient_click` / `resilient_fill` | Self-healing selectors: 6-strategy fallback (selector → cache → aria → text → role → tag) with persistent cache |
-
-**How to use from justclaw (via Bash tool):**
-
-```bash
-# Helper: queue a command and wait for result
-function browser() {
-  local CMD_ID=$(curl -s -X POST http://localhost:8787/api/extension-commands \
-    -H 'Content-Type: application/json' -d "$1" | jq -r '.id')
-  sleep ${2:-6}
-  curl -s http://localhost:8787/api/extension-commands/$CMD_ID | jq '.result'
-}
-```
-
-**Common workflows:**
-
-```bash
-# Read a webpage (text, links, headings)
-browser '{"type":"read_page","url":"https://example.com","screenshot":false}'
-
-# Screenshot a page
-browser '{"type":"screenshot","url":"https://example.com"}' 8
-
-# Extract structured data from a page
-browser '{"type":"extract_structured","tabId":TAB_ID,"schema":{"title":"h1","price":{"selector":".price","type":"number"},"items":{"selector":".item","type":"list","fields":{"name":"h3","link":{"selector":"a","type":"link"}}}}}'
-
-# Extract all tables as JSON
-browser '{"type":"extract_tables","tabId":TAB_ID}'
-
-# Extract metadata (JSON-LD, OpenGraph, RSS feeds)
-browser '{"type":"extract_metadata","tabId":TAB_ID}'
-
-# Annotate interactive elements (Set-of-Mark) + screenshot
-browser '{"type":"annotate_interactive","tabId":TAB_ID}' 8
-
-# Find element by description (natural language)
-browser '{"type":"find_element","tabId":TAB_ID,"description":"login button"}'
-
-# Self-healing click (caches selector, auto-recovers)
-browser '{"type":"resilient_click","tabId":TAB_ID,"name":"login-btn","description":"login button","selector":"#login"}'
-
-# Multi-step workflow
-browser '{"type":"workflow","steps":[
-  {"type":"open_tab","url":"https://example.com"},
-  {"type":"wait_for_selector","selector":"#form","delayMs":2000},
-  {"type":"fill_form","fields":[{"selector":"#email","value":"test@test.com"}]},
-  {"type":"submit_form"},
-  {"type":"read_tab","textLimit":1000}
-]}'
-
-# Print page to PDF
-browser '{"type":"print_pdf","url":"https://example.com"}' 8
-
-# Emulate mobile device
-browser '{"type":"emulate_device","tabId":TAB_ID,"preset":"iphone16"}'
-# Presets: iphone16, iphone16pro, pixel9, ipad, ipadpro, galaxys24, desktop1080, desktop1440, laptop
-
-# HAR capture (full network timeline)
-browser '{"type":"start_har_capture","tabId":TAB_ID}'
-# ... do stuff ...
-browser '{"type":"stop_har_capture","tabId":TAB_ID}'
-
-# Tab management
-browser '{"type":"list_tabs"}'
-browser '{"type":"adopt_tab","tabId":TAB_ID}'  # adopt existing tab for automation
-```
-
-**70 commands in 11 categories:**
-| Category | Commands |
-|----------|----------|
-| Tab mgmt (9) | `open_tab`, `close_tab`, `read_tab`, `navigate`, `list_tabs`, `adopt_tab`, `list_managed`, `reload_tab`, `reload_usage` |
-| Screenshots (3) | `screenshot`, `screenshot_element`, `capture_sequence` |
-| Interaction (9) | `click`, `hover`, `drag_drop`, `fill_form`, `submit_form`, `select_option`, `press_key`, `scroll_page`, `wait_for_selector` |
-| Data extraction (6) | `read_page`, `extract_structured`, `extract_tables`, `extract_metadata`, `query_elements`, `get_styles` |
-| AI agent (4) | `annotate_interactive`, `find_element`, `resilient_click`, `resilient_fill` |
-| Iframe/Shadow (4) | `list_frames`, `read_frame`, `execute_in_frame`, `query_shadow_dom` |
-| Debugging (6) | `get_accessibility_tree`, `get_full_accessibility_tree`, `inspect_react`, `inspect_app_state`, `detect_layout_issues`, `execute_script` |
-| Capture (9) | `start_console_capture`, `get_console_logs`, `get_page_errors`, `start_network_capture`, `get_network_logs`, `start_websocket_capture`, `get_websocket_logs`, `start_har_capture`, `stop_har_capture` |
-| Browser state (5) | `get_cookies`, `get_storage`, `set_storage`, `clipboard_read`, `clipboard_write` |
-| Emulation (10) | `emulate_device`, `clear_emulation`, `network_throttle`, `set_geolocation`, `clear_geolocation`, `handle_dialog`, `print_pdf`, `file_upload`, `go_back`, `go_forward` |
-| Utility (5) | `ping`, `status`, `extract_now`, `get_debug`, `workflow` |
-
-**Installation:** Load unpacked from `browser-extension/` in `chrome://extensions` (Developer mode).
+Full reference, usage examples, and all 70 commands: @docs/BROWSER-BRIDGE.md
 
 ## MCP Tools (49)
 
@@ -218,89 +97,17 @@ Full reference: @docs/MCP-TOOLS.md
 
 ## Available Tools (Discord Bot & Escalation Agent)
 
-When responding via Discord, you have access to all tools below. Use them proactively — don't tell the user to run commands, run them yourself.
+When responding via Discord, use tools proactively — don't tell the user to run commands, run them yourself.
 
-### justclaw MCP (`mcp__justclaw__*`)
-Use these for all persistence. Every conversation should be logged, decisions saved to memory, work tracked in tasks.
-- `memory_save/search/recall/forget/list/consolidate` — persistent knowledge across sessions
-- `task_create/update/list/next/claim/complete` — work queue with priorities and dependencies
-- `context_flush/restore` — save/restore session state before compaction
-- `conversation_log/history/search/summary` — message history across channels
-- `goal_set/list/archive` — persistent objectives that drive daily task generation
-- `learning_add/search/stats` — structured self-improvement from errors and corrections
-- `state_get/set`, `status` — key-value store and system overview
-- `process_check/restart_self/restart_dashboard/ghost_status` — process lifecycle
-- `system_recommendations/escalation_history` — self-healing audit trail
+- **justclaw MCP** (`mcp__justclaw__*`): all 49 tools — memory, tasks, context, conversations, goals, learnings, notebooks, monitors, anticipation, state, process, system
+- **Notebooks**: `notebook_create(name, path)` → ingest 60+ file types, `notebook_query` → source-grounded answers. Use when user shares docs for analysis.
+- **Monitors**: `monitor_create` → track prices, uptime, web changes. Sources: `url` or `command`. Extractors: `jsonpath`, `regex`, `status_code`, `response_time`, `body_hash`, `stdout`. Conditions: `threshold_above/below`, `change_percent`, `change_any`, `contains`, `not_contains`, `regex_match`. Run in heartbeat (5 min).
+- **Browser**: 70 commands via extension. Queue via `curl -X POST http://localhost:8787/api/extension-commands`. See @docs/BROWSER-BRIDGE.md
+- **File ops**: `Read`, `Write`, `Edit`, `Glob`, `Grep`
+- **Web**: `WebSearch`, `WebFetch`
+- **Bash**: `git`, `npm`, `node`, `pm2`, `curl`, `python3`, `jq`, etc.
 
-#### Notebooks (`mcp__justclaw__notebook_*`) — Document Analysis
-Point to a folder of documents, query them with source-grounded answers. Like NotebookLM.
-- `notebook_create(name, path)` — ingest a directory. Scans for 60+ file types (PDF, DOCX, XLSX, PPTX, HTML, EPUB, images, code, config). Chunks content, indexes with FTS5.
-- `notebook_query(notebook, query)` — search for relevant content. Small notebooks load entirely into context; large ones use FTS5 BM25 retrieval. **Always cite sources as [source:filename:lines].**
-- `notebook_overview(notebook)` — returns source data for synthesizing: overview, key topics, suggested questions, per-source summaries.
-- `notebook_sources(notebook)` — list indexed files with chunk/token counts.
-- `notebook_list()` — list all notebooks.
-- `notebook_delete(notebook)` — remove a notebook and all chunks.
-
-**When to use:** User shares a folder of docs and wants analysis, Q&A, summaries, or comparisons. User says "read these docs", "what does this codebase do", "summarize these papers". Also useful for ingesting project documentation for grounded answers.
-
-#### Monitors (`mcp__justclaw__monitor_*`) — Metric Watching
-Track any metric (prices, uptime, web changes, custom APIs) with automatic alerting.
-- `monitor_create(name, source_type, source_config, extractor_type, condition_type, ...)` — define what to watch, how to extract the value, when to alert.
-- `monitor_list()` — show all monitors with current status.
-- `monitor_check(name?)` — manually trigger a check (or check all due monitors).
-- `monitor_history(name, limit?)` — view recent check results as time-series.
-- `monitor_update(name, ...)` — change config, enable/disable.
-- `monitor_delete(name)` — remove a monitor and its history.
-
-**Source types:** `url` (HTTP GET/POST with headers) or `command` (shell command).
-**Extractors:** `jsonpath` (e.g., `$.bitcoin.usd`), `regex`, `status_code`, `response_time`, `body_hash`, `stdout`, `exit_code`.
-**Conditions:** `threshold_above/below`, `change_percent`, `change_any`, `contains`, `not_contains`, `regex_match`.
-
-**When to use:** User asks to "watch", "track", "monitor", "alert me when", "notify me if". Examples:
-- "Track Bitcoin price and alert me if it drops 5%" → monitor_create with CoinGecko API + jsonpath + change_percent
-- "Monitor my website uptime" → monitor_create with url + status_code + threshold_below 200
-- "Watch this page for changes" → monitor_create with url + body_hash + change_any
-- "Alert me if disk usage goes above 90%" → monitor_create with command `df -h /` + regex + threshold_above
-
-Monitors run automatically in the heartbeat loop (every 5 min). Alerts post to the monitor's configured Discord channel.
-
-### File Operations
-Use Read/Glob/Grep for inspection, Edit for targeted changes, Write for new files.
-- `Read` — read any file by path
-- `Write` — create or overwrite files
-- `Edit` — surgical find-and-replace edits (preferred over Write for existing files)
-- `Glob` — find files by pattern (`**/*.ts`, `src/**/*.json`)
-- `Grep` — search file contents by regex
-
-### Shell Commands (Bash)
-All commands run in the project root (`/home/julian/temp/justclaw`) by default.
-
-| Category | Commands | When to use |
-|----------|----------|-------------|
-| **Dev** | `git`, `npm`, `npx`, `node`, `tsc` | Build, test, commit, run scripts |
-| **Python** | `python3`, `pip` | Run Python scripts, install packages |
-| **System** | `apt`, `pm2`, `ps`, `df`, `free`, `uname`, `date` | Check system health, manage services |
-| **Files** | `ls`, `find`, `cat`, `head`, `tail`, `cp`, `mv`, `mkdir`, `chmod`, `tar`, `unzip` | File management |
-| **Text** | `grep`, `sed`, `awk`, `jq`, `sort`, `diff`, `wc` | Parse logs, transform data |
-| **Network** | `curl` | API calls, health checks, webhooks |
-| **DB** | `sqlite3` | Direct SQLite queries on `data/charlie.db` |
-
-### Web Access
-- `WebSearch` — search the web for documentation, solutions, current information
-- `WebFetch` — fetch a URL and read its contents
-
-### When to use what
-- **User asks a question about the system** → `ps`, `pm2 list`, `df -h`, `free -m`, `status`
-- **User asks to build/deploy** → `npm run build`, `npm test`, `pm2 restart`, `git commit`
-- **User asks to check logs** → `pm2 logs`, `tail`, `grep` on log files
-- **User asks to fix code** → `Read` the file, `Edit` the fix, `npm run build`, `npm test`
-- **User asks to install something** → `npm install`, `pip install`, `apt list`
-- **User asks to research** → `WebSearch`, `WebFetch`, then summarize
-- **User shares a folder of documents** → `notebook_create` to ingest, then `notebook_query` for Q&A, `notebook_overview` for synthesis
-- **User asks to watch/track/monitor something** → `monitor_create` with appropriate source + extractor + condition
-- **User asks about prices, uptime, metrics** → check if a monitor exists (`monitor_list`), create one if not, or `monitor_check` for immediate result
-- **User asks "analyze these docs" or "what do these files say"** → `notebook_create` + `notebook_query` or `notebook_overview`
-- **Always after completing work** → `memory_save` key decisions, `task_complete` if applicable, `conversation_log` the exchange
+**After completing work**: `memory_save` key decisions, `task_complete` if applicable, `conversation_log` the exchange.
 
 ## System Safety — Protecting the Ubuntu Host
 
@@ -411,41 +218,9 @@ Six-layer system that makes every session feel like the same agent waking up. Wo
 
 ## Dashboard
 
-Web control plane at `http://localhost:8787`. Password-protected with sessions that survive restarts.
+Web control plane at `http://localhost:8787` (password: `DASHBOARD_PASSWORD`, default `88888888`). Sessions survive restarts. Tab bar shows token sparkline, agent throughput, Claude Code stats. Overview: work queue, heatmap (EDT), monitor status grid, agent intelligence (learnings/goals/memory), sessions. 7 default monitors: dashboard uptime, disk, RAM, Discord bot, GitHub, Bitcoin, Anthropic status.
 
-**Tab bar stats** (always visible): token usage sparkline (7d), agent throughput (runs/duration/success%), Claude Code stats (sessions/tokens/cache/cost).
-
-**Overview panels:**
-- Work Queue, Scheduled Tasks, Memories, Conversations, Alerts, Daily Log
-- Activity Heatmap — 7-day hour-by-hour grid (EDT, log scale)
-- Monitor Status — colored pills per monitor (ok/alert/critical/unknown)
-- Agent Intelligence — learnings feed + goals progress + memory namespace distribution
-- Claude Code Sessions — recent sessions with tokens/cache/cost
-
-**Dashboard API endpoints** (auth-required unless noted):
-| Endpoint | Purpose |
-|----------|---------|
-| `/api/status` | Quick overview stats |
-| `/api/metrics` | System resources, agent runs, trends, services |
-| `/api/heatmap` | Activity heatmap data (EDT-adjusted) |
-| `/api/token-usage` | Token counts and trends (7d) |
-| `/api/agent-throughput` | Runs today, avg duration, success/fail |
-| `/api/monitors-status` | All monitors with current status |
-| `/api/learnings` | Recent learnings with category stats |
-| `/api/goals` | Active goals with task progress |
-| `/api/memory-breakdown` | Memory distribution by namespace and type |
-| `/api/extension-*` | Browser extension bridge (auth-free) |
-
-**Default monitors** (created on setup):
-| Monitor | Source | Alert condition |
-|---------|--------|-----------------|
-| `dashboard-uptime` | HTTP localhost:8787 | Status != 200 |
-| `disk-usage` | `df /` | > 85% |
-| `memory-usage` | `free` | > 85% |
-| `discord-bot` | PM2 status | Not "online" |
-| `github-repo` | GitHub API | Status > 299 |
-| `bitcoin-price` | CoinGecko BTC/USD | > 5% change |
-| `claude-ai-status` | Anthropic status page | Incident active |
+Full reference (API endpoints, monitors, auth): @docs/DASHBOARD.md
 
 ## Skills
 
@@ -481,4 +256,6 @@ When compacting, preserve: modified files list, test results, errors and fixes, 
 - MCP tool reference: @docs/MCP-TOOLS.md
 - Discord bot internals: @docs/DISCORD-BOT.md
 - Process management: @docs/PROCESS-MANAGEMENT.md
+- Browser bridge (70 commands): @docs/BROWSER-BRIDGE.md
+- Dashboard (API, widgets, monitors): @docs/DASHBOARD.md
 - Architecture decisions: @docs/decisions/
