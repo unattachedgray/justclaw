@@ -61,7 +61,7 @@ justclaw will never:
 
 ### Browser Bridge (Chrome Extension)
 
-- **62 browser automation commands** via a Chrome extension that communicates with the dashboard.
+- **70 browser automation commands** via a Chrome extension that communicates with the dashboard.
 - **Core**: tab management, screenshots, click/fill/submit, cookies, console capture, network interception, React DevTools, multi-step workflows.
 - **Phase 1**: dialog handling, print to PDF, file upload, browser history, clipboard, network throttling, geolocation spoofing.
 - **Phase 2**: drag-and-drop, iframe access, shadow DOM piercing, HAR export, full CDP accessibility tree, device emulation (9 presets).
@@ -137,7 +137,7 @@ Run `claude` from this directory. The `.mcp.json` auto-registers all 49 tools.
 
 ### Chrome Extension (Browser Bridge)
 
-The browser bridge gives justclaw 62 browser automation commands (screenshots, form fill, data extraction, etc):
+The browser bridge gives justclaw 70 browser automation commands (screenshots, form fill, data extraction, etc):
 
 1. Open `chrome://extensions`
 2. Enable **Developer mode** (top-right toggle)
@@ -222,7 +222,7 @@ pm2 logs justclaw-discord     # View bot logs
 
 | Document | Content |
 |----------|---------|
-| [CLAUDE.md](CLAUDE.md) | Development guide, architecture, all 49 MCP tools + 62 browser commands |
+| [CLAUDE.md](CLAUDE.md) | Development guide, architecture, all 49 MCP tools + 70 browser commands |
 | [docs/MCP-TOOLS.md](docs/MCP-TOOLS.md) | Complete MCP tool reference |
 | [docs/DISCORD-BOT.md](docs/DISCORD-BOT.md) | Discord bot internals, session continuity |
 | [docs/PROCESS-MANAGEMENT.md](docs/PROCESS-MANAGEMENT.md) | Process registry and kill policy |

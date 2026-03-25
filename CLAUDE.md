@@ -1,6 +1,6 @@
 # justclaw — Persistence & automation layer for Claude Code CLI
 
-SQLite-backed MCP server (49 tools) + Chrome browser bridge (62 commands) + Discord bot + deterministic heartbeat + self-healing process management. TypeScript, Node.js 20+, Linux.
+SQLite-backed MCP server (49 tools) + Chrome browser bridge (70 commands) + Discord bot + deterministic heartbeat + self-healing process management. TypeScript, Node.js 20+, Linux.
 
 **Philosophy**: Deterministic code first, LLM only when reasoning is genuinely needed. Claude Code CLI is the brain; justclaw is the long-term memory, task queue, and lifecycle harness.
 
@@ -30,7 +30,7 @@ Claude Code CLI → justclaw MCP Server (stdio, 49 tools)
                     ↓         ↓              ↓              ↓
               Dashboard   Discord Bot    Heartbeat       Browser Bridge
               Hono:8787   discord.js     9 checks        Chrome extension
-              read-only   streams claude  + LLM escal.   62 commands
+              read-only   streams claude  + LLM escal.   70 commands
 ```
 
 ## Build & Run
@@ -67,7 +67,7 @@ pm2 save                           # Persist for reboot
 | `src/extractors.ts` | Multi-format document extraction: PDF, DOCX, XLSX, PPTX, HTML, EPUB, images |
 | `scripts/prediction-tracker.ts` | Deterministic investment prediction tracker (CLI, JSON-backed) |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
-| `browser-extension/` | Chrome extension: browser bridge with 62 automation commands |
+| `browser-extension/` | Chrome extension: browser bridge with 70 automation commands |
 | `.mcp.json` | MCP server config — **must include `JUSTCLAW_NO_DASHBOARD: "1"`** |
 
 ## Browser Bridge (Chrome Extension)
@@ -81,7 +81,7 @@ Chrome extension (`browser-extension/`) that gives justclaw full browser automat
 - `POST /api/usage-calibration` — receive Claude usage data
 - `GET /api/extension-status` — check if extension is connected
 
-**62 commands in 3 phases:**
+**70 commands in 3 phases:**
 
 ### Core (from NanoClaw, rebranded)
 Tab management, screenshots (full/element/sequence), click/hover, form fill/submit, select options, press keys, wait for selector, scroll, navigate, DOM queries, CSS styles, cookies, local/session storage, console capture, network interception (fetch/XHR/WebSocket), React DevTools (fiber tree, hooks, state), app state (Redux/Zustand/Next.js), layout issue detection, execute script, multi-step workflows, tab listing/adoption/reload.
@@ -117,16 +117,85 @@ Tab management, screenshots (full/element/sequence), click/hover, form fill/subm
 | `find_element` | Natural language element search — "login button" → scored candidates with selectors |
 | `resilient_click` / `resilient_fill` | Self-healing selectors: 6-strategy fallback (selector → cache → aria → text → role → tag) with persistent cache |
 
-**Usage from justclaw:** Queue commands via the dashboard API:
-```bash
-# Queue a command
-curl -X POST http://localhost:8787/api/extension-commands \
-  -H 'Content-Type: application/json' \
-  -d '{"type":"read_page","url":"https://example.com","screenshot":true}'
+**How to use from justclaw (via Bash tool):**
 
-# Check result
-curl http://localhost:8787/api/extension-commands/<cmd-id>
+```bash
+# Helper: queue a command and wait for result
+function browser() {
+  local CMD_ID=$(curl -s -X POST http://localhost:8787/api/extension-commands \
+    -H 'Content-Type: application/json' -d "$1" | jq -r '.id')
+  sleep ${2:-6}
+  curl -s http://localhost:8787/api/extension-commands/$CMD_ID | jq '.result'
+}
 ```
+
+**Common workflows:**
+
+```bash
+# Read a webpage (text, links, headings)
+browser '{"type":"read_page","url":"https://example.com","screenshot":false}'
+
+# Screenshot a page
+browser '{"type":"screenshot","url":"https://example.com"}' 8
+
+# Extract structured data from a page
+browser '{"type":"extract_structured","tabId":TAB_ID,"schema":{"title":"h1","price":{"selector":".price","type":"number"},"items":{"selector":".item","type":"list","fields":{"name":"h3","link":{"selector":"a","type":"link"}}}}}'
+
+# Extract all tables as JSON
+browser '{"type":"extract_tables","tabId":TAB_ID}'
+
+# Extract metadata (JSON-LD, OpenGraph, RSS feeds)
+browser '{"type":"extract_metadata","tabId":TAB_ID}'
+
+# Annotate interactive elements (Set-of-Mark) + screenshot
+browser '{"type":"annotate_interactive","tabId":TAB_ID}' 8
+
+# Find element by description (natural language)
+browser '{"type":"find_element","tabId":TAB_ID,"description":"login button"}'
+
+# Self-healing click (caches selector, auto-recovers)
+browser '{"type":"resilient_click","tabId":TAB_ID,"name":"login-btn","description":"login button","selector":"#login"}'
+
+# Multi-step workflow
+browser '{"type":"workflow","steps":[
+  {"type":"open_tab","url":"https://example.com"},
+  {"type":"wait_for_selector","selector":"#form","delayMs":2000},
+  {"type":"fill_form","fields":[{"selector":"#email","value":"test@test.com"}]},
+  {"type":"submit_form"},
+  {"type":"read_tab","textLimit":1000}
+]}'
+
+# Print page to PDF
+browser '{"type":"print_pdf","url":"https://example.com"}' 8
+
+# Emulate mobile device
+browser '{"type":"emulate_device","tabId":TAB_ID,"preset":"iphone16"}'
+# Presets: iphone16, iphone16pro, pixel9, ipad, ipadpro, galaxys24, desktop1080, desktop1440, laptop
+
+# HAR capture (full network timeline)
+browser '{"type":"start_har_capture","tabId":TAB_ID}'
+# ... do stuff ...
+browser '{"type":"stop_har_capture","tabId":TAB_ID}'
+
+# Tab management
+browser '{"type":"list_tabs"}'
+browser '{"type":"adopt_tab","tabId":TAB_ID}'  # adopt existing tab for automation
+```
+
+**70 commands in 11 categories:**
+| Category | Commands |
+|----------|----------|
+| Tab mgmt (9) | `open_tab`, `close_tab`, `read_tab`, `navigate`, `list_tabs`, `adopt_tab`, `list_managed`, `reload_tab`, `reload_usage` |
+| Screenshots (3) | `screenshot`, `screenshot_element`, `capture_sequence` |
+| Interaction (9) | `click`, `hover`, `drag_drop`, `fill_form`, `submit_form`, `select_option`, `press_key`, `scroll_page`, `wait_for_selector` |
+| Data extraction (6) | `read_page`, `extract_structured`, `extract_tables`, `extract_metadata`, `query_elements`, `get_styles` |
+| AI agent (4) | `annotate_interactive`, `find_element`, `resilient_click`, `resilient_fill` |
+| Iframe/Shadow (4) | `list_frames`, `read_frame`, `execute_in_frame`, `query_shadow_dom` |
+| Debugging (6) | `get_accessibility_tree`, `get_full_accessibility_tree`, `inspect_react`, `inspect_app_state`, `detect_layout_issues`, `execute_script` |
+| Capture (9) | `start_console_capture`, `get_console_logs`, `get_page_errors`, `start_network_capture`, `get_network_logs`, `start_websocket_capture`, `get_websocket_logs`, `start_har_capture`, `stop_har_capture` |
+| Browser state (5) | `get_cookies`, `get_storage`, `set_storage`, `clipboard_read`, `clipboard_write` |
+| Emulation (10) | `emulate_device`, `clear_emulation`, `network_throttle`, `set_geolocation`, `clear_geolocation`, `handle_dialog`, `print_pdf`, `file_upload`, `go_back`, `go_forward` |
+| Utility (5) | `ping`, `status`, `extract_now`, `get_debug`, `workflow` |
 
 **Installation:** Load unpacked from `browser-extension/` in `chrome://extensions` (Developer mode).
 
