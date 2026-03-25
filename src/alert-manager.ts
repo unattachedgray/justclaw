@@ -40,6 +40,8 @@ const BUILTIN_WHITELIST = [
   { pattern: 'gnome-shell', reason: 'Desktop environment' },
   { pattern: 'xfwm4', reason: 'Window manager' },
   { pattern: 'snapd', reason: 'Package manager daemon' },
+  { pattern: 'chromium', reason: 'Browser — justclaw browser bridge extension' },
+  { pattern: 'chrome', reason: 'Browser — justclaw browser bridge extension' },
 ];
 
 /** Load built-in whitelist entries (idempotent — skips existing). */
