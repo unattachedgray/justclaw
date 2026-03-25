@@ -102,7 +102,8 @@ justclaw will never:
 
 ### Infrastructure
 
-- **Web dashboard** — Hono :8787 with SSE, activity heatmap, Claude Code session stats, quick actions, themes.
+- **Web dashboard** — Hono :8787 with SSE, themes, persistent auth. Tab bar shows token sparkline (7d), agent throughput (runs/duration/success%), and Claude Code stats. Overview panels: work queue, scheduled tasks, memories, conversations, alerts, daily log, activity heatmap (EDT, log scale), monitor status grid, agent intelligence (learnings/goals/memory distribution), Claude Code sessions.
+- **7 default monitors** — dashboard uptime, disk/RAM usage, Discord bot health, GitHub repo, Bitcoin price, Anthropic API status. Colored status pills on the dashboard.
 - **Safe deploy** — `npm run deploy` builds, tests, git-tags, restarts, monitors for 60s, auto-rolls back on crash loop.
 - **Crash watchdog** — cron (2min) detects crash loops, auto-reverts to last stable tag.
 - **Process registry** — conservative 3-layer kill policy with PID reuse protection and safety scoring (0-100).
