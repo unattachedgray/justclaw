@@ -100,20 +100,24 @@ export function registerTaskTools(server: McpServer, db: DB): void {
 
   server.tool(
     'task_update',
-    `Update an existing task's status, description, priority, or result.
+    `Update an existing task's fields: status, description, priority, schedule, title, or result.
 
 **Status flow:** pending -> active -> completed | failed | blocked.
-**When to use:** To change task state, add notes, reprioritize, or mark as blocked with explanation.`,
+**When to use:** To change task state, reschedule, retitle, reprioritize, or mark as blocked.
+**Schedule changes:** Set recurrence and/or due_at to change when a recurring task fires.`,
     {
       id: z.number().describe('Task ID'),
       status: z.string().default('').describe('New status: pending, active, completed, failed, blocked'),
+      title: z.string().default('').describe('Updated title. Empty = no change.'),
       description: z.string().default('').describe('Updated description'),
       priority: z.number().default(0).describe('Updated priority (1-10). 0 = no change'),
       result: z.string().default('').describe('Result/progress notes'),
       depends_on: z.string().default('').describe('Updated dependency list (comma-separated task IDs)'),
       target_channel: z.string().default('').describe('Discord channel ID for posting results. Empty = no change.'),
+      recurrence: z.string().default('').describe('Updated recurrence pattern (e.g. "cron:40 12 * * *"). Empty = no change.'),
+      due_at: z.string().default('').describe('Updated due date as ISO datetime. Empty = no change.'),
     },
-    async ({ id, status, description, priority, result, depends_on, target_channel }) => {
+    async ({ id, status, title, description, priority, result, depends_on, target_channel, recurrence, due_at }) => {
       const existing = db.fetchone('SELECT * FROM tasks WHERE id = ?', [id]);
       if (!existing) {
         return { content: [{ type: 'text', text: `Task ${id} not found.` }] };
@@ -130,11 +134,14 @@ export function registerTaskTools(server: McpServer, db: DB): void {
           params.push(db.now());
         }
       }
+      if (title) { updates.push('title = ?'); params.push(title); }
       if (description) { updates.push('description = ?'); params.push(description); }
       if (priority > 0) { updates.push('priority = ?'); params.push(priority); }
       if (result) { updates.push('result = ?'); params.push(result); }
       if (depends_on) { updates.push('depends_on = ?'); params.push(depends_on); }
       if (target_channel) { updates.push('target_channel = ?'); params.push(target_channel); }
+      if (recurrence) { updates.push('recurrence = ?'); params.push(recurrence); }
+      if (due_at) { updates.push('due_at = ?'); params.push(normalizeDueAt(due_at)); }
 
       if (updates.length === 0) {
         return { content: [{ type: 'text', text: 'Nothing to update.' }] };
