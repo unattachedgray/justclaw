@@ -48,3 +48,23 @@ Six-layer system that makes every session feel like the same agent waking up. Wo
 | DB | Integrity check on startup, WAL checkpoint hourly, backup every 6h |
 | Discord | Error/shard handlers, readiness gate, circuit breaker |
 | Shutdown | Process group kills, 5s grace, SIGKILL fallback |
+
+# Scheduled Task Creation (Interpreting Informal Requests)
+
+When the user asks to set up a new recurring task, follow this deterministic flow:
+
+1. **List templates**: Call `task_create_from_template(template: "")` to see available templates + output channels
+2. **Match intent to template**: Pick the closest template. If none fits, use `task_create` with free-form description.
+3. **Fill variables from context**: Infer what you can from the request. Ask only for what's ambiguous.
+4. **Set output channels**: Check the suggested channels. If the user mentions a new email/channel, it auto-registers.
+5. **Confirm before creating**: Show the user what you're about to create (template, key vars, schedule, outputs).
+
+**Key tools:**
+- `task_create_from_template` — new task from template + variables
+- `task_duplicate` — clone existing task with overrides ("like the banking one but for X")
+- `task_update_var` — change one variable on existing task ("change the email to X")
+- `task_update` — change non-template fields (schedule, priority, channel)
+
+**Output channels** (state key `output_channels`): discord channels, email addresses, and GitHub repos used by tasks. General-scope channels are suggested for new tasks. Task-specific repos (like kag-industry-news) are NOT suggested unless the user explicitly requests archiving.
+
+**Template evolution**: If a request pattern repeats and no template fits, consider creating a new template in `data/task-templates/`. Templates should be generic enough for reuse but specific enough to produce consistent results.

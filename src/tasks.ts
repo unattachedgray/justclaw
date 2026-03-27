@@ -2,7 +2,8 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import type { DB } from './db.js';
 import { cronNext } from './cron.js';
-import { listTemplates } from './task-templates.js';
+import { listTemplates, parseTemplateRef } from './task-templates.js';
+import { autoRegisterFromTask, formatChannelSuggestions } from './output-channels.js';
 
 /** Normalize due_at to SQLite datetime format (space separator, no T). */
 function normalizeDueAt(due: string | null | undefined): string | null {
@@ -88,6 +89,10 @@ export function registerTaskTools(server: McpServer, db: DB): void {
         'INSERT INTO tasks (title, description, priority, tags, due_at, depends_on, recurrence, target_channel, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
         [title, description, priority, tags, normalizeDueAt(due_at), depends_on, recurrence || null, effectiveChannel, now, now],
       );
+      // Auto-register output channels from this task's variables.
+      const ref = parseTemplateRef(description);
+      if (ref) autoRegisterFromTask(db, ref.vars, effectiveChannel);
+
       const task = { id: result.lastInsertRowid, title, status: 'pending', priority, depends_on, recurrence: recurrence || null, target_channel: effectiveChannel };
       return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) }] };
     },
@@ -349,6 +354,10 @@ export function registerTaskTools(server: McpServer, db: DB): void {
         [newTitle, newDesc, newPriority, newTags, newDueAt, '', newRecurrence, newChannel, now, now],
       );
 
+      // Auto-register output channels.
+      const ref = parseTemplateRef(newDesc);
+      if (ref) autoRegisterFromTask(db, ref.vars, newChannel);
+
       const task = { id: result.lastInsertRowid, title: newTitle, status: 'pending', priority: newPriority, recurrence: newRecurrence, due_at: newDueAt, target_channel: newChannel, duplicated_from: source_id };
       return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) }] };
     },
@@ -381,7 +390,8 @@ export function registerTaskTools(server: McpServer, db: DB): void {
         const listing = templates.map((t) =>
           `**${t.name}**\n  Variables: ${t.variables.filter((v) => !['DATE', 'DATE_KR', 'YEAR', 'MONTH', 'DAY', 'DOW'].includes(v)).join(', ')}`
         ).join('\n\n');
-        return { content: [{ type: 'text', text: `Available templates:\n\n${listing}\n\nBuilt-in auto-variables (no need to set): DATE, DATE_KR, YEAR, MONTH, DAY, DOW` }] };
+        const channels = formatChannelSuggestions(db);
+        return { content: [{ type: 'text', text: `Available templates:\n\n${listing}\n\nBuilt-in auto-variables (no need to set): DATE, DATE_KR, YEAR, MONTH, DAY, DOW\n\n${channels}` }] };
       }
 
       // Verify template exists
@@ -418,10 +428,87 @@ export function registerTaskTools(server: McpServer, db: DB): void {
       const required = found.variables.filter((v) => !builtinVars.includes(v));
       const missing = required.filter((v) => !providedVars.includes(v));
 
+      // Auto-register output channels from variables.
+      const varMap: Record<string, string> = {};
+      for (const line of variables.split('\n')) {
+        const ci = line.indexOf(':');
+        if (ci > 0) varMap[line.slice(0, ci).trim()] = line.slice(ci + 1).trim();
+      }
+      autoRegisterFromTask(db, varMap, effectiveChannel);
+
       const task = { id: result.lastInsertRowid, title, status: 'pending', priority, recurrence: recurrence || null, due_at: normalizeDueAt(due_at), target_channel: effectiveChannel, template };
       let msg = JSON.stringify(task, null, 2);
       if (missing.length > 0) {
         msg += `\n\n⚠️ Missing template variables (will be unresolved at runtime): ${missing.join(', ')}`;
+      }
+      return { content: [{ type: 'text', text: msg }] };
+    },
+  );
+
+  server.tool(
+    'task_update_var',
+    `Update one or more variables on a template-based task without rewriting the entire description.
+
+**When to use:** "Change the banking report email to X" or "Add insurance to the search topics".
+**How it works:** Reads the task's current template:name + vars block, updates the specified variables, writes back.
+**Only works on template-based tasks** (description starts with "template:").`,
+    {
+      id: z.number().describe('Task ID'),
+      updates: z.string().describe('Variables to update as "key: value" lines separated by newlines (e.g. "email_to: new@example.com")'),
+    },
+    async ({ id, updates }) => {
+      const task = db.fetchone('SELECT id, description, recurrence, recurrence_source_id FROM tasks WHERE id = ?', [id]);
+      if (!task) {
+        return { content: [{ type: 'text', text: `Task ${id} not found.` }] };
+      }
+
+      const ref = parseTemplateRef(task.description as string);
+      if (!ref) {
+        return { content: [{ type: 'text', text: `Task ${id} is not template-based. Use task_update to change its description directly.` }] };
+      }
+
+      // Parse the updates
+      const newVars: Record<string, string> = {};
+      for (const line of updates.split('\n')) {
+        const ci = line.indexOf(':');
+        if (ci > 0) {
+          const key = line.slice(0, ci).trim();
+          const value = line.slice(ci + 1).trim();
+          if (key && value) newVars[key] = value;
+        }
+      }
+
+      if (Object.keys(newVars).length === 0) {
+        return { content: [{ type: 'text', text: 'No valid key: value pairs found in updates.' }] };
+      }
+
+      // Merge: existing vars + new vars (new overwrite existing)
+      const merged = { ...ref.vars, ...newVars };
+
+      // Reconstruct the description
+      const descLines = [`template:${ref.templateName}`];
+      for (const [k, v] of Object.entries(merged)) {
+        descLines.push(`${k}: ${v}`);
+      }
+      const newDesc = descLines.join('\n');
+
+      const now = db.now();
+      db.execute('UPDATE tasks SET description = ?, updated_at = ? WHERE id = ?', [newDesc, now, id]);
+
+      // Auto-register any new output channels
+      autoRegisterFromTask(db, merged, null);
+
+      // If this is a recurring task, also update future pending instances
+      const sourceId = (task.recurrence_source_id as number) || id;
+      const futureUpdated = db.execute(
+        "UPDATE tasks SET description = ?, updated_at = ? WHERE recurrence_source_id = ? AND status = 'pending' AND id != ?",
+        [newDesc, now, sourceId, id],
+      );
+
+      const changed = Object.keys(newVars).join(', ');
+      let msg = `Updated task ${id}: ${changed}`;
+      if (futureUpdated.changes > 0) {
+        msg += ` (+ ${futureUpdated.changes} future recurring instance(s))`;
       }
       return { content: [{ type: 'text', text: msg }] };
     },

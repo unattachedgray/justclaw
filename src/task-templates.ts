@@ -32,7 +32,7 @@ function getTemplateDir(): string {
 }
 
 /** Parse a task description that starts with `template:<name>`. */
-function parseTemplateRef(description: string): { templateName: string; vars: Record<string, string> } | null {
+export function parseTemplateRef(description: string): { templateName: string; vars: Record<string, string> } | null {
   const lines = description.split('\n');
   const firstLine = lines[0].trim();
 

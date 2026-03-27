@@ -74,10 +74,10 @@ pm2 save                           # Persist for reboot
 | `browser-extension/` | Chrome extension: browser bridge with 70 automation commands |
 | `.mcp.json` | MCP server config — **must include `JUSTCLAW_NO_DASHBOARD: "1"`** |
 
-## MCP Tools (54)
+## MCP Tools (55)
 
 Memory (6): save, search, recall, forget, list, consolidate — FTS5, namespaces, autodream-style dedup
-Tasks (8): create, update, list, next, claim, complete, **duplicate**, **create_from_template** — dependencies, agent claiming, templates, auto-execute
+Tasks (9): create, update, **update_var**, list, next, claim, complete, **duplicate**, **create_from_template** — dependencies, agent claiming, templates, output channel registry, auto-execute
 Context (5): flush, restore, today, daily_log_add/get — compaction lifecycle
 Conversations (4): log, history, search, summary — FTS5 across channels
 Goals (3): set, list, archive — persistent objectives that drive daily task generation
