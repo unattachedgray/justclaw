@@ -209,4 +209,5 @@ When compacting, preserve: modified files list, test results, errors and fixes, 
 - Process management: @docs/PROCESS-MANAGEMENT.md
 - Browser bridge (70 commands): @docs/BROWSER-BRIDGE.md
 - Dashboard (API, widgets, monitors): @docs/DASHBOARD.md
+- Development roadmap: @docs/development.md
 - Architecture decisions: @docs/decisions/
