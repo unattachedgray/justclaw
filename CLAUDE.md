@@ -67,6 +67,8 @@ pm2 save                           # Persist for reboot
 | `src/extractors.ts` | Multi-format document extraction: PDF, DOCX, XLSX, PPTX, HTML, EPUB, images |
 | `src/gemini.ts` | Gemini AI: image gen/edit, PDF analysis, vision, grounded search (5 tools) |
 | `src/time-utils.ts` | Shared timezone utilities: formatLocalTime, dual display, state-driven home/current tz |
+| `src/task-templates.ts` | Task template resolver: `{{variable}}` interpolation, built-in date vars, template listing |
+| `data/task-templates/` | Template files for recurring tasks (e.g., `daily-report.md`) |
 | `scripts/prediction-tracker.ts` | Deterministic investment prediction tracker (CLI, JSON-backed) |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
 | `browser-extension/` | Chrome extension: browser bridge with 70 automation commands |

@@ -20,6 +20,7 @@ import { buildTaskPreamble } from './session-context.js';
 import { findClaudeBin, buildClaudeEnv, buildShellCmd } from '../claude-spawn.js';
 import { computeNextDue } from '../tasks.js';
 import { formatLocalTime } from '../time-utils.js';
+import { resolveTaskDescription } from '../task-templates.js';
 
 const log = getLogger('scheduled-tasks');
 const TASK_TIMEOUT_MS = 5 * 60_000; // 5 min max per scheduled task
@@ -101,13 +102,14 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<TaskRunResult> {
 
   // Phase 2: Inject task preamble for context continuity.
   const preamble = buildTaskPreamble(db);
+  const resolvedDescription = resolveTaskDescription(task.description);
   const prompt = [
     preamble,
     '---',
     `You are executing a scheduled task: "${task.title}"`,
     '',
     'Instructions:',
-    task.description,
+    resolvedDescription,
     '',
     'After completing the task:',
     '1. Use mcp__justclaw__task_complete to mark this task done (id: ' + task.id + ')',
