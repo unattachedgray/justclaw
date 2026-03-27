@@ -39,6 +39,27 @@ export interface HeartbeatReport {
 }
 
 // ---------------------------------------------------------------------------
+// Check concern areas — maps each check to the domains it monitors.
+// Used by escalation to filter alerts based on what the user is working on.
+// ---------------------------------------------------------------------------
+
+export interface CheckConcern {
+  areas: string[];  // e.g., ['process', 'pm2'], ['tasks'], ['system']
+}
+
+export const CHECK_CONCERNS: Record<string, string[]> = {
+  'process-registry': ['process', 'orphans'],
+  'stale-claude': ['process', 'claude-p'],
+  'pm2-health': ['pm2', 'crash-loop'],
+  'unanswered-messages': ['discord', 'responsiveness'],
+  'system-status': ['tasks', 'memory', 'daily-log'],
+  'stuck-tasks': ['tasks', 'scheduling'],
+  'doc-staleness': ['documentation', 'claude-md'],
+  'event-loop': ['performance', 'node'],
+  'memory-usage': ['system', 'resources'],
+};
+
+// ---------------------------------------------------------------------------
 // Individual checks
 // ---------------------------------------------------------------------------
 

@@ -34,9 +34,9 @@ describe('Schema v14', () => {
     expect(tables).toContain('monitor_history');
   });
 
-  it('schema version is 14', () => {
+  it('schema version is 15', () => {
     const row = db.fetchone("SELECT value FROM schema_meta WHERE key='version'");
-    expect(Number(row!.value)).toBe(14);
+    expect(Number(row!.value)).toBe(15);
   });
 
   it('monitors table has all expected columns', () => {

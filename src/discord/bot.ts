@@ -24,6 +24,7 @@ import {
   activeClaudePids, callClaude, callClaudeWithRetry, sendFinalResponse,
 } from './claude-invoker.js';
 import { loadTimezoneState } from '../time-utils.js';
+import { classifyMessage, getIntentGuidance } from './message-router.js';
 
 export { activeClaudePids };
 
@@ -180,7 +181,7 @@ async function maybeFlushContext(
 ): Promise<void> {
   if (!sessionId) return;
   const currentTurnCount = getSessionTurnCount(db, channelId);
-  if (!shouldFlushContext(currentTurnCount)) return;
+  if (!shouldFlushContext(currentTurnCount, db, channelId)) return;
 
   log.info('Triggering pre-compaction flush', { channelId, turnCount: currentTurnCount });
   try {
@@ -234,7 +235,16 @@ async function executeQueuedMessages(
 
   const userContent = coalesceMessages(messages);
   const preamble = buildIdentityPreamble(db, channelId);
-  const fullPrompt = preamble + '\n---\n' + userContent;
+
+  // Deterministic intent classification — appends focused guidance for known patterns
+  const intent = classifyMessage(userContent);
+  const guidance = getIntentGuidance(intent);
+  const guidanceSuffix = guidance ? `\n[Intent: ${intent}] ${guidance}` : '';
+  if (intent !== 'general') {
+    log.info('Message classified', { channelId, intent });
+  }
+
+  const fullPrompt = preamble + '\n---\n' + userContent + guidanceSuffix;
 
   let progressMsg: Message | null = null;
   try {

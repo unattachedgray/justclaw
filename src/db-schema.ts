@@ -3,7 +3,7 @@
  * Extracted from db.ts to keep each file under 500 lines.
  */
 
-export const SCHEMA_VERSION = 14;
+export const SCHEMA_VERSION = 15;
 
 export const SCHEMA_SQL = `
 -- Memories: durable facts, preferences, decisions, context.
@@ -485,5 +485,20 @@ export const MIGRATIONS: Record<number, string[]> = {
         checked_at  TEXT    NOT NULL DEFAULT (datetime('now'))
     )`,
     "CREATE INDEX IF NOT EXISTS idx_monitor_history_monitor ON monitor_history(monitor_id, checked_at)",
+  ],
+  15: [
+    "ALTER TABLE tasks ADD COLUMN max_steps INTEGER",
+    "ALTER TABLE tasks ADD COLUMN max_cost_cents INTEGER",
+    "ALTER TABLE playbook ADD COLUMN success_criteria TEXT",
+    "ALTER TABLE playbook ADD COLUMN guardrails TEXT",
+    "ALTER TABLE playbook ADD COLUMN steps TEXT",
+    `CREATE TABLE IF NOT EXISTS task_checkpoints (
+      id INTEGER PRIMARY KEY,
+      task_id INTEGER NOT NULL,
+      step INTEGER NOT NULL,
+      phase TEXT NOT NULL,
+      state_json TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    )`,
   ],
 };

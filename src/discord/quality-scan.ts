@@ -6,6 +6,8 @@
  * and success indicators. Returns a structured QualityScan.
  */
 
+import { existsSync } from 'fs';
+
 export interface PatternMatch {
   pattern: string;
   match: string;
@@ -65,7 +67,7 @@ const GENERIC_REPORT_SECTIONS = [
 ];
 
 /** Template-specific section patterns. */
-const TEMPLATE_SECTIONS: Record<string, Array<{ regex: RegExp; label: string }>> = {
+export const TEMPLATE_SECTIONS: Record<string, Array<{ regex: RegExp; label: string }>> = {
   'daily-report': [
     { regex: /RESEARCH|web search|검색/i, label: 'Research section' },
     { regex: /GitHub|archive|git/i, label: 'Archive section' },
@@ -183,4 +185,65 @@ export function classifyErrors(scan: QualityScan): ErrorClass {
   }
 
   return 'novel';
+}
+
+// ---------------------------------------------------------------------------
+// Post-execution verification helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Verify that expected task outputs exist on disk.
+ * Called after task completion for two-phase tasks.
+ */
+export function verifyTaskOutputs(
+  reportPath: string | null,
+  expectedGitRepo: string | null,
+): { ok: boolean; issues: string[] } {
+  const issues: string[] = [];
+
+  if (reportPath && !existsSync(reportPath)) {
+    issues.push(`Report file missing: ${reportPath}`);
+  }
+
+  if (expectedGitRepo) {
+    const gitDir = `${expectedGitRepo}/.git`;
+    if (!existsSync(gitDir)) {
+      issues.push(`Git repo not found: ${expectedGitRepo}`);
+    }
+  }
+
+  return { ok: issues.length === 0, issues };
+}
+
+/**
+ * Check if task output text indicates successful git operations.
+ */
+export function verifyGitSuccess(text: string): boolean {
+  return /committed|pushed|archived|git-archive.*success/i.test(text);
+}
+
+/**
+ * Verify section content meets minimum length requirements.
+ * Returns descriptions of sections that are present but too short.
+ */
+export function findThinSections(
+  text: string,
+  templateName?: string,
+  minChars: number = 200,
+): string[] {
+  const sectionPatterns = TEMPLATE_SECTIONS[templateName || ''];
+  if (!sectionPatterns) return [];
+
+  const thin: string[] = [];
+  const headingRegex = /^#{1,3}\s+.+$/gm;
+  const sections = text.split(headingRegex);
+
+  for (const section of sections) {
+    const trimmed = section.trim();
+    if (trimmed.length > 0 && trimmed.length < minChars) {
+      thin.push(`Section too short (${trimmed.length} chars < ${minChars} min)`);
+    }
+  }
+
+  return thin;
 }

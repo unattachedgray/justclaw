@@ -34,6 +34,9 @@ export interface PlaybookEntry {
   times_succeeded: number;
   learned_at: string;
   last_used: string | null;
+  success_criteria: string | null;
+  guardrails: string | null;
+  steps: string | null; // JSON array
 }
 
 /** Find a matching playbook entry for a goal + pattern. */
@@ -58,6 +61,7 @@ export function consultPlaybookByGoal(db: DB, goal: string): PlaybookEntry[] {
 /** Record or update a playbook entry. Upserts on goal + pattern. */
 export function recordPlaybookEntry(
   db: DB, goal: string, pattern: string, action: string, source: string,
+  extra?: { success_criteria?: string; guardrails?: string; steps?: string[] },
 ): void {
   const existing = db.fetchone(
     'SELECT id FROM playbook WHERE goal = ? AND pattern = ?',
@@ -71,9 +75,12 @@ export function recordPlaybookEntry(
     );
   } else {
     db.execute(
-      `INSERT INTO playbook (goal, pattern, action, confidence, source, times_used, times_succeeded)
-       VALUES (?, ?, ?, 0.5, ?, 0, 0)`,
-      [goal, pattern, action, source],
+      `INSERT INTO playbook (goal, pattern, action, confidence, source, times_used, times_succeeded, success_criteria, guardrails, steps)
+       VALUES (?, ?, ?, 0.5, ?, 0, 0, ?, ?, ?)`,
+      [goal, pattern, action, source,
+       extra?.success_criteria || null,
+       extra?.guardrails || null,
+       extra?.steps ? JSON.stringify(extra.steps) : null],
     );
   }
   log.info('Playbook entry recorded', { goal, pattern: pattern.slice(0, 60) });
@@ -92,6 +99,34 @@ export function updatePlaybookOutcome(db: DB, entryId: number, succeeded: boolea
     'UPDATE playbook SET times_used = ?, times_succeeded = ?, confidence = ?, last_used = datetime(\'now\') WHERE id = ?',
     [used, succeeded_n, confidence, entryId],
   );
+}
+
+/**
+ * Auto-enhance a playbook entry with steps from a successful task.
+ * Called when confidence reaches 0.7+ and times_used >= 5.
+ */
+export function autoEnhancePlaybook(
+  db: DB,
+  entryId: number,
+  taskResult: string,
+): void {
+  const entry = db.fetchone(
+    'SELECT steps, confidence, times_used FROM playbook WHERE id = ?',
+    [entryId],
+  );
+  if (!entry) return;
+  if (entry.steps) return; // Already has steps
+  if ((entry.confidence as number) < 0.7 || (entry.times_used as number) < 5) return;
+
+  // Extract step-like patterns from successful result
+  const stepPatterns = taskResult.match(/^\s*\d+\.\s+.+$/gm) ||
+                       taskResult.match(/^[-*]\s+.+$/gm) ||
+                       taskResult.match(/^✅\s+.+$/gm);
+  if (!stepPatterns || stepPatterns.length < 2) return;
+
+  const steps = stepPatterns.slice(0, 10).map(s => s.trim());
+  db.execute('UPDATE playbook SET steps = ? WHERE id = ?', [JSON.stringify(steps), entryId]);
+  log.info('Auto-enhanced playbook entry with steps', { entryId, stepCount: steps.length });
 }
 
 /**

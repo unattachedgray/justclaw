@@ -23,6 +23,7 @@ import { formatLocalTime } from '../time-utils.js';
 import { resolveTaskDescription, resolveTaskPhases, parseTemplateRef } from '../task-templates.js';
 import { reflectOnTaskResult } from './reflect.js';
 import { checkPendingDeliveries, registerPendingDelivery, executeInlineDelivery } from './task-delivery.js';
+import { createGitCheckpoint, shadowValidate } from '../task-checkpoints.js';
 
 const log = getLogger('scheduled-tasks');
 const TASK_TIMEOUT_MS = 20 * 60_000; // 20 min default — overridden by lead time if set
@@ -42,6 +43,7 @@ interface DueTask {
   due_at: string;
   target_channel: string | null;
   session_id: string | null;
+  max_steps: number | null;
 }
 
 /**
@@ -74,7 +76,7 @@ function getDueTasks(db: DB): DueTask[] {
   const now = db.now();
   // First: tasks that are past due (original behavior)
   const rows = db.fetchall(
-    `SELECT id, title, description, priority, tags, recurrence, due_at, target_channel, session_id
+    `SELECT id, title, description, priority, tags, recurrence, due_at, target_channel, session_id, max_steps
      FROM tasks
      WHERE recurrence IS NOT NULL
        AND due_at IS NOT NULL
@@ -95,6 +97,7 @@ function getDueTasks(db: DB): DueTask[] {
       due_at: r.due_at as string,
       target_channel: (r.target_channel as string) || null,
       session_id: (r.session_id as string) || null,
+      max_steps: (r.max_steps as number) ?? null,
     }))
     .filter((task) => {
       const dueMs = new Date(task.due_at.replace(' ', 'T') + 'Z').getTime();
@@ -109,7 +112,7 @@ function getDueTasks(db: DB): DueTask[] {
 /** Query for auto-executable tasks (flagged for autonomous execution). */
 function getAutoExecuteTasks(db: DB): DueTask[] {
   const rows = db.fetchall(
-    `SELECT id, title, description, priority, tags, recurrence, due_at, target_channel
+    `SELECT id, title, description, priority, tags, recurrence, due_at, target_channel, session_id, max_steps
      FROM tasks
      WHERE auto_execute = 1
        AND status = 'pending'
@@ -126,6 +129,7 @@ function getAutoExecuteTasks(db: DB): DueTask[] {
     due_at: (r.due_at as string) || '',
     target_channel: (r.target_channel as string) || null,
     session_id: (r.session_id as string) || null,
+    max_steps: (r.max_steps as number) ?? null,
   }));
 }
 
@@ -219,6 +223,7 @@ function runClaudeForTask(db: DB, task: DueTask, prepOnly: boolean = false): Pro
     let finalResult = '';
     let newSessionId: string | null = task.session_id;
     let stderrBuf = '';
+    let stepCount = 0;
 
     const effectiveTimeout = getEffectiveTimeoutMs(task);
     log.info('Task timeout set', { taskId: task.id, timeoutMs: effectiveTimeout, hasLeadTime: getLeadTimeMs(task.tags) > 0 });
@@ -245,11 +250,14 @@ function runClaudeForTask(db: DB, task: DueTask, prepOnly: boolean = false): Pro
             // Capture session_id for continuity.
             if (event.session_id) newSessionId = event.session_id;
           } else if (event.type === 'assistant' && event.message?.content) {
-            // Collect text blocks from assistant messages.
             for (const block of event.message.content) {
-              if (block.type === 'text' && block.text) {
-                finalResult = block.text;
-              }
+              if (block.type === 'text' && block.text) finalResult = block.text;
+              if (block.type === 'tool_use') stepCount++;
+            }
+            // Step budget enforcement
+            if (task.max_steps && stepCount > task.max_steps) {
+              log.warn('Task exceeded step budget', { taskId: task.id, steps: stepCount, max: task.max_steps });
+              try { process.kill(-child.pid!, 'SIGTERM'); } catch { /* already dead */ }
             }
           }
         } catch (e: unknown) { log.debug('Task stream JSON parse failed', { error: String(e), line: line.slice(0, 120) }); }
@@ -442,6 +450,12 @@ export async function checkAndRunScheduledTasks(
       await textChannel.send(`📅 **Scheduled task starting:** ${task.title}`);
     }
     const taskStartMs = Date.now();
+
+    // Git checkpoint for tasks that modify repos
+    const repoMatch = task.description.match(/repo_path:\s*(\S+)/);
+    if (repoMatch) {
+      createGitCheckpoint(db, task.id, repoMatch[1]);
+    }
 
     // Run claude -p (prep-only if two-phase, full otherwise).
     const result = await runClaudeForTask(db, task, isPrepOnly);

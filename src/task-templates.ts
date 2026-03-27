@@ -137,9 +137,49 @@ export function resolveTaskDescription(description: string): string {
 /** Delivery separator in templates — everything below this is deterministic shell commands. */
 const DELIVERY_SEPARATOR = '---DELIVERY---';
 
+/** Schema separator — defines expected output structure for validation. */
+const SCHEMA_SEPARATOR = '---SCHEMA---';
+
+export interface OutputSchema {
+  required_sections?: string[];
+  min_content_length?: number;
+  required_links?: boolean;
+  file_output?: string;
+}
+
 export interface TaskPhases {
   prepPrompt: string;
   deliveryCommands: string[] | null;
+  outputSchema: OutputSchema | null;
+}
+
+/** Parse YAML-like key: value pairs from a ---SCHEMA--- block. */
+function parseOutputSchema(schemaText: string): OutputSchema {
+  const schema: OutputSchema = {};
+  for (const line of schemaText.split('\n')) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const colonIdx = trimmed.indexOf(':');
+    if (colonIdx === -1) continue;
+    const key = trimmed.slice(0, colonIdx).trim();
+    const value = trimmed.slice(colonIdx + 1).trim();
+
+    switch (key) {
+      case 'required_sections':
+        schema.required_sections = value.replace(/[\[\]"]/g, '').split(',').map((s) => s.trim());
+        break;
+      case 'min_content_length':
+        schema.min_content_length = parseInt(value, 10) || undefined;
+        break;
+      case 'required_links':
+        schema.required_links = value === 'true';
+        break;
+      case 'file_output':
+        schema.file_output = value;
+        break;
+    }
+  }
+  return schema;
 }
 
 /**
@@ -152,12 +192,12 @@ export function resolveTaskPhases(
   extraVars?: Record<string, string>,
 ): TaskPhases {
   const ref = parseTemplateRef(description);
-  if (!ref) return { prepPrompt: description, deliveryCommands: null };
+  if (!ref) return { prepPrompt: description, deliveryCommands: null, outputSchema: null };
 
   const template = loadTemplate(ref.templateName);
   if (!template) {
     log.error('Template not found, using raw description', { template: ref.templateName });
-    return { prepPrompt: description, deliveryCommands: null };
+    return { prepPrompt: description, deliveryCommands: null, outputSchema: null };
   }
 
   const builtins = getBuiltinVars();
@@ -167,11 +207,20 @@ export function resolveTaskPhases(
   }
   const allVars = { ...builtins, ...resolvedVars, ...(extraVars || {}) };
 
-  if (!template.includes(DELIVERY_SEPARATOR)) {
-    return { prepPrompt: interpolate(template, allVars), deliveryCommands: null };
+  // Extract schema section if present (always at the end)
+  let contentWithoutSchema = template;
+  let outputSchema: OutputSchema | null = null;
+  if (template.includes(SCHEMA_SEPARATOR)) {
+    const [contentPart, schemaPart] = template.split(SCHEMA_SEPARATOR, 2);
+    contentWithoutSchema = contentPart;
+    outputSchema = parseOutputSchema(interpolate(schemaPart, allVars));
   }
 
-  const [prepPart, deliveryPart] = template.split(DELIVERY_SEPARATOR, 2);
+  if (!contentWithoutSchema.includes(DELIVERY_SEPARATOR)) {
+    return { prepPrompt: interpolate(contentWithoutSchema, allVars), deliveryCommands: null, outputSchema };
+  }
+
+  const [prepPart, deliveryPart] = contentWithoutSchema.split(DELIVERY_SEPARATOR, 2);
   const prepPrompt = interpolate(prepPart.trim(), allVars);
   const deliveryCommands = deliveryPart
     .trim()
@@ -182,9 +231,10 @@ export function resolveTaskPhases(
   log.info('Resolved task template with delivery phase', {
     template: ref.templateName,
     deliveryCommandCount: deliveryCommands.length,
+    hasSchema: outputSchema !== null,
   });
 
-  return { prepPrompt, deliveryCommands };
+  return { prepPrompt, deliveryCommands, outputSchema };
 }
 
 /**

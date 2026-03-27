@@ -12,3 +12,9 @@ For Discord output: use generous code blocks and markdown formatting. Suppress l
 
 ---DELIVERY---
 bash /home/julian/temp/justclaw/scripts/send-email.sh --to "{{email_to}}" --subject "{{email_subject}}" --body-file /tmp/justclaw-report-{{TASK_ID}}.md
+
+---SCHEMA---
+required_sections: Research, Archive, Sources
+min_content_length: 2000
+required_links: true
+file_output: /tmp/justclaw-report-{{TASK_ID}}.md
