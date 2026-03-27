@@ -68,3 +68,31 @@ When the user asks to set up a new recurring task, follow this deterministic flo
 **Output channels** (state key `output_channels`): discord channels, email addresses, and GitHub repos used by tasks. General-scope channels are suggested for new tasks. Task-specific repos (like kag-industry-news) are NOT suggested unless the user explicitly requests archiving.
 
 **Template evolution**: If a request pattern repeats and no template fits, consider creating a new template in `data/task-templates/`. Templates should be generic enough for reuse but specific enough to produce consistent results.
+
+# Deterministic Scripts Over LLM Calls
+
+**Core principle**: Every repeated operation in a scheduled task should become a deterministic script, not an LLM prompt. LLM calls are expensive, slow, non-deterministic, and produce inconsistent results across runs. Scripts are free, fast, and identical every time.
+
+**When building or improving scheduled tasks:**
+
+1. **Identify repeated operations** in task execution — email sending, file writing, git archiving, data formatting, API calls, file conversions. If claude-p does the same mechanical operation every run, it should be a script.
+
+2. **Write shell scripts** in `scripts/` for each operation. Examples already exist:
+   - `scripts/send-email.sh` — deterministic email with .env loading
+   - Templates reference scripts via `bash scripts/send-email.sh --to X --subject Y --body-file /tmp/report.md`
+
+3. **Templates should call scripts for delivery, use LLM only for reasoning**:
+   - ✅ LLM: web research, content synthesis, analysis, Korean translation
+   - ✅ Script: email sending, git add/commit/push, file formatting, API POST
+   - ❌ Never: LLM writing a node script to call sendEmail at runtime
+
+4. **When a task fails due to a mechanical step** (email didn't send, git push failed, wrong file path), fix it by writing or improving a script — not by making the LLM prompt more detailed.
+
+5. **Self-improvement loop**: After each scheduled task run, evaluate whether any step that claude-p performed could be replaced by a deterministic script. If yes, create the script in `scripts/`, update the template, and log a learning. Over time, templates should converge toward: "LLM researches and writes content → scripts handle all delivery."
+
+**Script conventions:**
+- Location: `scripts/<action>.sh` (e.g., `scripts/git-archive.sh`, `scripts/send-email.sh`)
+- Always `cd /home/julian/temp/justclaw` and load `.env`
+- Accept args via `--flag value` pattern
+- Exit 0 on success, non-zero on failure with error message to stderr
+- Idempotent where possible (safe to retry)
