@@ -65,7 +65,7 @@ pm2 save                           # Persist for reboot
 | `src/monitors.ts` | Metric monitoring engine: URL/command sources, extractors, condition evaluation |
 | `src/monitor-tools.ts` | Monitor MCP tools: create, list, check, history, update, delete |
 | `src/extractors.ts` | Multi-format document extraction: PDF, DOCX, XLSX, PPTX, HTML, EPUB, images |
-| `src/image-gen.ts` | Gemini AI image generation: text-to-image via gemini-3.1-flash-image-preview |
+| `src/gemini.ts` | Gemini AI: image gen/edit, PDF analysis, vision, grounded search (5 tools) |
 | `scripts/prediction-tracker.ts` | Deterministic investment prediction tracker (CLI, JSON-backed) |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
 | `browser-extension/` | Chrome extension: browser bridge with 70 automation commands |
