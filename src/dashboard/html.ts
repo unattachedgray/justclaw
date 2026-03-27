@@ -3,6 +3,7 @@
 import { getDashboardScripts } from './html-scripts.js';
 import { getEditModeStyles, getEditToggleHtml } from './html-edit-mode.js';
 import { getHeatmapStyles, getQuickActionsHtml, getQuickActionsStyles, getClaudeSessionsStyles } from './html-extras.js';
+import { getResourcePanelHtml, getResourceStyles } from './html-resources.js';
 
 function getThemeStyles(): string {
   return `
@@ -450,6 +451,7 @@ ${getEditModeStyles()}
 ${getHeatmapStyles()}
 ${getClaudeSessionsStyles()}
 ${getQuickActionsStyles()}
+${getResourceStyles()}
 </style>
 </head>
 <body>
@@ -540,6 +542,7 @@ ${getQuickActionsStyles()}
       <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Monitor Status</div>
       <div class="panel-body" id="monitor-status"></div>
     </div>
+    ${getResourcePanelHtml()}
     <div class="panel" data-pid="panel-intelligence">
       <div class="panel-header"><span class="collapse-indicator">&#9660;</span> Agent Intelligence</div>
       <div class="panel-body">

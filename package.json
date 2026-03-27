@@ -15,6 +15,7 @@
     "dashboard": "node dist/dashboard/app.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "build:skills": "npx tsx scripts/build-skill-index.ts",
     "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
     "postinstall": "bash scripts/postinstall.sh",
     "deploy": "bash scripts/safe-deploy.sh",

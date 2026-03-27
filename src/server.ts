@@ -10,6 +10,7 @@ import { registerGoalTools } from './goals.js';
 import { registerLearningTools } from './learnings.js';
 import { registerNotebookTools } from './notebooks.js';
 import { registerMonitorTools } from './monitor-tools.js';
+import { registerGeminiTools } from './gemini.js';
 import { gatherSignals, type AnticipationSignal } from './discord/anticipation.js';
 import { addToWhitelist, removeFromWhitelist, getWhitelist, silenceAlert, unsilenceAlert, getActiveSilences } from './alert-manager.js';
 import { auditProcesses, getSuspiciousProcesses, getSuggestions, registerProcess, retireProcess } from './process-registry.js';
@@ -46,6 +47,7 @@ export function createServer(opts: {
   registerLearningTools(server, _db);
   registerNotebookTools(server, _db);
   registerMonitorTools(server, _db);
+  registerGeminiTools(server);
   // Process management tools — delegate to process-registry.ts (SQLite-backed).
   server.tool(
     'process_check',

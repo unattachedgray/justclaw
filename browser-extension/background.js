@@ -22,7 +22,7 @@ const CMD_POLL_INTERVAL_MIN = 5/60; // 5 seconds
 
 // ── Safety limits ──
 const MAX_MANAGED_TABS = 5; // Max tabs the extension can have open
-const TAB_TTL_MS = 120_000; // Auto-close managed tabs after 2 min
+const TAB_TTL_MS = 600_000; // Auto-close managed tabs after 10 min (enough for workflows)
 const MAX_CAPTURE_FRAMES = 20; // Max frames in a capture sequence
 const MIN_CAPTURE_INTERVAL_MS = 500; // Min interval between captures
 const MAX_WORKFLOW_STEPS = 20; // Max steps in a multi-step workflow

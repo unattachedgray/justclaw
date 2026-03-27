@@ -1,5 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import { existsSync, readFileSync } from 'fs';
+import { homedir } from 'os';
+import { join } from 'path';
 import type { DB } from './db.js';
 
 /**
@@ -16,6 +19,139 @@ export function enforceMemoryExpiry(db: DB): number {
     "DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at < datetime('now')",
   );
   return expired.length;
+}
+
+interface MemoryRow {
+  key: string;
+  content: string;
+  namespace: string;
+  [k: string]: unknown;
+}
+
+/** Compute Jaccard similarity of word sets from two strings. */
+function jaccardSimilarity(a: string, b: string): number {
+  const wordsA = new Set(a.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  const wordsB = new Set(b.toLowerCase().split(/\s+/).filter(w => w.length > 2));
+  if (wordsA.size === 0 && wordsB.size === 0) return 0;
+  let intersection = 0;
+  for (const w of wordsA) {
+    if (wordsB.has(w)) intersection++;
+  }
+  const union = wordsA.size + wordsB.size - intersection;
+  return union === 0 ? 0 : intersection / union;
+}
+
+/** Find memory pairs within the same namespace with >threshold Jaccard similarity. */
+function findFuzzyDuplicates(
+  memories: MemoryRow[],
+  threshold: number,
+): Array<{ key1: string; key2: string; similarity: number; namespace: string }> {
+  const byNs = new Map<string, MemoryRow[]>();
+  for (const m of memories) {
+    const arr = byNs.get(m.namespace) ?? [];
+    arr.push(m);
+    byNs.set(m.namespace, arr);
+  }
+  const dupes: Array<{ key1: string; key2: string; similarity: number; namespace: string }> = [];
+  for (const [ns, group] of byNs) {
+    // Cap pairwise comparisons to avoid O(n^2) blowup on large namespaces
+    const cap = Math.min(group.length, 200);
+    for (let i = 0; i < cap; i++) {
+      for (let j = i + 1; j < cap; j++) {
+        const sim = jaccardSimilarity(group[i].content, group[j].content);
+        if (sim >= threshold) {
+          dupes.push({ key1: group[i].key, key2: group[j].key, similarity: Math.round(sim * 100) / 100, namespace: ns });
+        }
+      }
+    }
+  }
+  return dupes.slice(0, 50);
+}
+
+/** Pattern for relative date references that become stale over time. */
+const RELATIVE_DATE_RE = /\b(yesterday|today|this morning|this afternoon|this evening|tonight|last week|last month|last night|earlier today|just now|a few days ago|the other day|recently)\b/i;
+
+/** Find memories containing relative date references. */
+function findTemporalReferences(memories: MemoryRow[]): Array<{ key: string; matches: string[] }> {
+  const results: Array<{ key: string; matches: string[] }> = [];
+  for (const m of memories) {
+    const matches: string[] = [];
+    let match: RegExpExecArray | null;
+    const re = new RegExp(RELATIVE_DATE_RE.source, 'gi');
+    while ((match = re.exec(m.content)) !== null) {
+      matches.push(match[0]);
+    }
+    if (matches.length > 0) results.push({ key: m.key, matches: [...new Set(matches)] });
+  }
+  return results.slice(0, 50);
+}
+
+/** Read Claude Code auto-memory file and return entries (lines starting with "- "). */
+function readClaudeAutoMemory(): string[] {
+  const memPath = join(
+    homedir(),
+    '.claude/projects/-home-julian-temp-justclaw/memory/MEMORY.md',
+  );
+  if (!existsSync(memPath)) return [];
+  const content = readFileSync(memPath, 'utf-8');
+  return content
+    .split('\n')
+    .filter(line => line.startsWith('- '))
+    .map(line => line.replace(/^- \[.*?\]\(.*?\)\s*—\s*/, '').trim())
+    .filter(Boolean);
+}
+
+/** Find justclaw memories that may overlap with Claude Code auto-memory entries. */
+function findAutoMemoryOverlaps(
+  memories: MemoryRow[],
+  autoEntries: string[],
+): Array<{ justclaw_key: string; auto_entry: string; similarity: number }> {
+  if (autoEntries.length === 0) return [];
+  const overlaps: Array<{ justclaw_key: string; auto_entry: string; similarity: number }> = [];
+  for (const m of memories) {
+    for (const entry of autoEntries) {
+      const sim = jaccardSimilarity(m.content, entry);
+      if (sim >= 0.4) {
+        overlaps.push({ justclaw_key: m.key, auto_entry: entry, similarity: Math.round(sim * 100) / 100 });
+      }
+    }
+  }
+  return overlaps.slice(0, 30);
+}
+
+/** Fetch core consolidation stats from the database. */
+function fetchConsolidationStats(db: DB, now: string, cutoff: string) {
+  const expired = db.fetchall(
+    'SELECT key, expires_at FROM memories WHERE expires_at IS NOT NULL AND expires_at < ?',
+    [now],
+  );
+  const stale = db.fetchall(
+    'SELECT key, created_at, access_count FROM memories WHERE access_count = 0 AND created_at < ?',
+    [cutoff],
+  );
+  const total = db.fetchone('SELECT COUNT(*) as count FROM memories');
+  const byNamespace = db.fetchall(
+    'SELECT namespace, COUNT(*) as count FROM memories GROUP BY namespace ORDER BY count DESC',
+  );
+  const byType = db.fetchall(
+    'SELECT type, COUNT(*) as count FROM memories GROUP BY type ORDER BY count DESC',
+  );
+  return { expired, stale, total, byNamespace, byType };
+}
+
+/** Regex to find file paths in memory content. */
+const FILE_PATH_RE = /(?:\/(?:home|tmp|var|etc|usr|opt)\/[^\s,;)}\]"'`]+)/g;
+
+/** Find memories referencing file paths that no longer exist. */
+function findStaleFileReferences(memories: MemoryRow[]): Array<{ key: string; missing_paths: string[] }> {
+  const results: Array<{ key: string; missing_paths: string[] }> = [];
+  for (const m of memories) {
+    const paths = m.content.match(FILE_PATH_RE);
+    if (!paths) continue;
+    const missing = [...new Set(paths)].filter(p => !existsSync(p));
+    if (missing.length > 0) results.push({ key: m.key, missing_paths: missing });
+  }
+  return results.slice(0, 50);
 }
 
 export function registerMemoryTools(server: McpServer, db: DB): void {
@@ -207,14 +343,17 @@ export function registerMemoryTools(server: McpServer, db: DB): void {
 
   server.tool(
     'memory_consolidate',
-    `Review memories and suggest cleanup actions: merge duplicates, archive stale entries, enforce expiry.
+    `Review memories and suggest cleanup actions: deduplicate, archive stale, enforce expiry.
 
 **When to use:** Periodically (e.g. weekly) or when memory count is high. Run with dry_run=true first to preview.
 **What it does:**
-- Finds memories with same/similar keys (potential duplicates)
-- Identifies never-accessed memories older than 30 days
-- Finds expired memories (past expires_at)
-- Reports stats for informed cleanup decisions`,
+- Finds expired memories and deletes them (when dry_run=false)
+- Identifies never-accessed memories older than stale_days
+- Fuzzy deduplication: flags memory pairs with >60% content similarity (Jaccard)
+- Temporal normalization: finds relative date references ("yesterday", "last week") that go stale
+- Cross-references with Claude Code auto-memory for overlap detection
+- Stale file references: flags memories citing file paths that no longer exist
+- Reports stats by namespace and type`,
     {
       dry_run: z
         .boolean()
@@ -225,37 +364,19 @@ export function registerMemoryTools(server: McpServer, db: DB): void {
     async ({ dry_run, stale_days }) => {
       const now = db.now();
       const cutoff = new Date(Date.now() - stale_days * 86400_000).toISOString().replace('T', ' ').slice(0, 19);
+      const { expired, stale, total, byNamespace, byType } = fetchConsolidationStats(db, now, cutoff);
 
-      // Expired memories (past expires_at)
-      const expired = db.fetchall(
-        'SELECT key, expires_at FROM memories WHERE expires_at IS NOT NULL AND expires_at < ?',
-        [now],
-      );
-
-      // Never-accessed memories older than stale_days
-      const stale = db.fetchall(
-        'SELECT key, created_at, access_count FROM memories WHERE access_count = 0 AND created_at < ?',
-        [cutoff],
-      );
-
-      // Total stats
-      const total = db.fetchone('SELECT COUNT(*) as count FROM memories');
-      const byNamespace = db.fetchall(
-        'SELECT namespace, COUNT(*) as count FROM memories GROUP BY namespace ORDER BY count DESC',
-      );
-      const byType = db.fetchall(
-        'SELECT type, COUNT(*) as count FROM memories GROUP BY type ORDER BY count DESC',
-      );
-
-      if (!dry_run) {
-        // Delete expired
-        if (expired.length > 0) {
-          db.execute(
-            'DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at < ?',
-            [now],
-          );
-        }
+      if (!dry_run && expired.length > 0) {
+        db.execute('DELETE FROM memories WHERE expires_at IS NOT NULL AND expires_at < ?', [now]);
       }
+
+      // Enhanced analysis on all memories
+      const allMemories = db.fetchall('SELECT key, content, namespace FROM memories') as MemoryRow[];
+      const fuzzyDupes = findFuzzyDuplicates(allMemories, 0.6);
+      const temporalRefs = findTemporalReferences(allMemories);
+      const autoMemEntries = readClaudeAutoMemory();
+      const autoMemOverlaps = findAutoMemoryOverlaps(allMemories, autoMemEntries);
+      const staleFiles = findStaleFileReferences(allMemories);
 
       const result = {
         total_memories: total?.count ?? 0,
@@ -263,6 +384,10 @@ export function registerMemoryTools(server: McpServer, db: DB): void {
         by_type: byType,
         expired: { count: expired.length, keys: expired.map((r) => r.key), action: dry_run ? 'would_delete' : 'deleted' },
         stale: { count: stale.length, keys: stale.slice(0, 20).map((r) => r.key), note: `Not accessed in ${stale_days} days` },
+        fuzzy_duplicates: { count: fuzzyDupes.length, pairs: fuzzyDupes, note: 'Memory pairs with >60% word overlap (Jaccard similarity)' },
+        temporal_references: { count: temporalRefs.length, entries: temporalRefs, note: 'Relative date references that become misleading over time' },
+        auto_memory_overlaps: { count: autoMemOverlaps.length, overlaps: autoMemOverlaps, note: 'Potential overlap with Claude Code auto-memory (~/.claude)' },
+        stale_file_references: { count: staleFiles.length, entries: staleFiles, note: 'Memories referencing file paths that no longer exist' },
         dry_run,
       };
 
