@@ -34,44 +34,44 @@ describe('parseCronField', () => {
 
 describe('cronNext', () => {
   it('finds next minute for * * * * *', () => {
-    const after = new Date('2026-03-21T10:30:00');
+    const after = new Date('2026-03-21T10:30:00Z');
     const next = cronNext('* * * * *', after);
-    expect(next.getMinutes()).toBe(31);
-    expect(next.getHours()).toBe(10);
+    expect(next.getUTCMinutes()).toBe(31);
+    expect(next.getUTCHours()).toBe(10);
   });
 
   it('finds daily 7am: 0 7 * * *', () => {
-    const after = new Date('2026-03-21T10:00:00');
+    const after = new Date('2026-03-21T10:00:00Z');
     const next = cronNext('0 7 * * *', after);
-    expect(next.getFullYear()).toBe(2026);
-    expect(next.getMonth()).toBe(2); // March (0-based)
-    expect(next.getDate()).toBe(22);
-    expect(next.getHours()).toBe(7);
-    expect(next.getMinutes()).toBe(0);
+    expect(next.getUTCFullYear()).toBe(2026);
+    expect(next.getUTCMonth()).toBe(2); // March (0-based)
+    expect(next.getUTCDate()).toBe(22);
+    expect(next.getUTCHours()).toBe(7);
+    expect(next.getUTCMinutes()).toBe(0);
   });
 
   it('finds every 30 min: */30 * * * *', () => {
-    const after = new Date('2026-03-21T10:15:00');
+    const after = new Date('2026-03-21T10:15:00Z');
     const next = cronNext('*/30 * * * *', after);
-    expect(next.getMinutes()).toBe(30);
-    expect(next.getHours()).toBe(10);
+    expect(next.getUTCMinutes()).toBe(30);
+    expect(next.getUTCHours()).toBe(10);
   });
 
   it('finds weekdays 9am: 0 9 * * 1-5', () => {
     // March 21 2026 is Saturday (dow=6)
-    const after = new Date('2026-03-21T10:00:00');
+    const after = new Date('2026-03-21T10:00:00Z');
     const next = cronNext('0 9 * * 1-5', after);
-    expect(next.getDate()).toBe(23); // Monday
-    expect(next.getHours()).toBe(9);
-    expect(next.getMinutes()).toBe(0);
+    expect(next.getUTCDate()).toBe(23); // Monday
+    expect(next.getUTCHours()).toBe(9);
+    expect(next.getUTCMinutes()).toBe(0);
   });
 
   it('advances past current minute', () => {
-    const after = new Date('2026-03-21T09:00:00');
+    const after = new Date('2026-03-21T09:00:00Z');
     const next = cronNext('0 9 * * *', after);
     // Should go to next day since 9:00 is the current time
-    expect(next.getDate()).toBe(22);
-    expect(next.getHours()).toBe(9);
+    expect(next.getUTCDate()).toBe(22);
+    expect(next.getUTCHours()).toBe(9);
   });
 
   it('throws on invalid expression', () => {

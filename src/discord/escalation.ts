@@ -195,9 +195,9 @@ export async function escalate(
     try {
       db.execute(
         `INSERT INTO memories (key, content, type, tags, namespace)
-         VALUES (?, ?, 'diagnosis', 'escalation,${goal.replace(/'/g, "''")}', 'system')
+         VALUES (?, ?, 'diagnosis', ?, 'system')
          ON CONFLICT(key) DO UPDATE SET content = excluded.content, updated_at = datetime('now')`,
-        [memoryKey, memoryContent],
+        [memoryKey, memoryContent, `escalation,${goal}`],
       );
     } catch (e: unknown) { log.debug('Escalation memory save failed', { memoryKey, error: String(e) }); }
 

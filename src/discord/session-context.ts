@@ -10,6 +10,8 @@
  */
 
 import type { DB } from '../db.js';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
 
 /**
  * Thresholds for session management.
@@ -29,11 +31,13 @@ export function shouldRotateSession(
   lastUsedAt: string | null,
   turnCount: number,
 ): { rotate: boolean; reason: string } {
-  // Daily rotation: if last interaction was a different calendar day.
+  // Daily rotation: if last interaction was a different calendar day (EDT).
   if (lastUsedAt) {
-    const lastDate = lastUsedAt.slice(0, 10);
-    const today = new Date().toISOString().slice(0, 10);
-    if (lastDate !== today) {
+    const edtFmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/New_York' });
+    const lastDateUtc = new Date(lastUsedAt.replace(' ', 'T') + 'Z');
+    const lastDateEdt = edtFmt.format(lastDateUtc);
+    const todayEdt = edtFmt.format(new Date());
+    if (lastDateEdt !== todayEdt) {
       return { rotate: true, reason: 'daily' };
     }
   }
@@ -49,6 +53,87 @@ export function shouldRotateSession(
 /** Check if a pre-compaction flush should be triggered. */
 export function shouldFlushContext(turnCount: number): boolean {
   return turnCount >= SESSION_TURN_FLUSH_THRESHOLD;
+}
+
+/** Cached skill catalog — loaded once from data/skill-index.json. */
+let skillCatalogCache: string | null = null;
+
+function loadSkillCatalog(): string {
+  if (skillCatalogCache !== null) return skillCatalogCache;
+
+  const root = process.env.JUSTCLAW_ROOT || process.cwd();
+  const indexPath = join(root, 'data', 'skill-index.json');
+
+  if (!existsSync(indexPath)) {
+    skillCatalogCache = '';
+    return '';
+  }
+
+  try {
+    const entries: Array<{ name: string; trigger: string; path: string }> =
+      JSON.parse(readFileSync(indexPath, 'utf-8'));
+
+    if (entries.length === 0) {
+      skillCatalogCache = '';
+      return '';
+    }
+
+    // Compact format: just skill names grouped in one line
+    const names = entries.map((e) => e.name).join(', ');
+    skillCatalogCache = [
+      '**Available skills** (read `data/skill-index.json` for triggers, or `~/.claude/skills/<name>/SKILL.md` for full reference):',
+      names,
+    ].join('\n');
+  } catch { /* skill-index.json missing or unreadable, skip skill catalog */
+    skillCatalogCache = '';
+  }
+
+  return skillCatalogCache;
+}
+
+/** Cached Claude Code auto memory — refreshed every 5 minutes. */
+let ccMemoryCache: { text: string | null; cachedAt: number } | null = null;
+const CC_MEMORY_CACHE_TTL_MS = 5 * 60_000; // 5 minutes
+
+/** Load Claude Code's auto memory index, extracting bullet points. */
+function loadClaudeCodeMemory(): string | null {
+  if (ccMemoryCache && Date.now() - ccMemoryCache.cachedAt < CC_MEMORY_CACHE_TTL_MS) {
+    return ccMemoryCache.text;
+  }
+
+  const home = process.env.HOME || '/home/julian';
+  const memPath = join(home, '.claude/projects/-home-julian-temp-justclaw/memory/MEMORY.md');
+
+  if (!existsSync(memPath)) {
+    ccMemoryCache = { text: null, cachedAt: Date.now() };
+    return null;
+  }
+
+  try {
+    const raw = readFileSync(memPath, 'utf-8');
+    const lines = raw.split('\n');
+
+    // Extract bullet points — skip headers, blank lines, frontmatter
+    const bullets = lines
+      .filter((line) => line.startsWith('- '))
+      .map((line) => line.trim());
+
+    if (bullets.length === 0) {
+      ccMemoryCache = { text: null, cachedAt: Date.now() };
+      return null;
+    }
+
+    let result = bullets.join('\n');
+    if (result.length > 500) {
+      result = result.slice(0, 497) + '...';
+    }
+
+    ccMemoryCache = { text: result, cachedAt: Date.now() };
+    return result;
+  } catch { /* MEMORY.md unreadable, cache null to avoid retrying until TTL */
+    ccMemoryCache = { text: null, cachedAt: Date.now() };
+    return null;
+  }
 }
 
 /** Cache for identity preamble — avoids 6 DB queries on every message. */
@@ -129,6 +214,21 @@ export function buildIdentityPreamble(db: DB, channelId: string): string {
       const area = l.area ? `[${l.area}]` : '';
       parts.push(`- ${area} ${l.lesson}`);
     }
+    parts.push('');
+  }
+
+  // Claude Code auto memory bridge — surface key learnings from native memory
+  const ccMemory = loadClaudeCodeMemory();
+  if (ccMemory) {
+    parts.push('**Claude Code auto memory notes:**');
+    parts.push(ccMemory);
+    parts.push('');
+  }
+
+  // Available skills (compact — just names, agent reads full SKILL.md when needed).
+  const catalog = loadSkillCatalog();
+  if (catalog) {
+    parts.push(catalog);
     parts.push('');
   }
 

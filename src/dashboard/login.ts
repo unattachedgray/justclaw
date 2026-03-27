@@ -1,6 +1,6 @@
 /** Login page HTML and auth helpers. */
 
-import { createHmac, randomBytes } from 'crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 
 const PASSWORD = process.env.DASHBOARD_PASSWORD || '88888888';
 // Derive secret from password so sessions survive restarts
@@ -25,7 +25,10 @@ export function isValidSession(token: string): boolean {
 }
 
 export function checkPassword(input: string): boolean {
-  return input === PASSWORD;
+  const a = Buffer.from(input);
+  const b = Buffer.from(PASSWORD);
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
 }
 
 export function sessionCookie(token: string): string {

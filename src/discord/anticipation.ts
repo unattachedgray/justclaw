@@ -111,9 +111,13 @@ function gatherGoalState(db: DB): AnticipationSignal | null {
 /** What time-based patterns exist? (day of week, hour of day) */
 function gatherTimeContext(db: DB): AnticipationSignal {
   const now = new Date();
-  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-  const day = dayNames[now.getDay()];
-  const hour = now.getHours();
+  const edtFormatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    weekday: 'long', hour: 'numeric', hour12: false
+  });
+  const parts = edtFormatter.formatToParts(now);
+  const day = parts.find(p => p.type === 'weekday')?.value || '';
+  const hour = parseInt(parts.find(p => p.type === 'hour')?.value || '0', 10);
   const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
 
   // Check what tasks were typically done at this time of day
@@ -121,8 +125,9 @@ function gatherTimeContext(db: DB): AnticipationSignal {
   const sameTimeTasks = db.fetchall(
     `SELECT title FROM tasks
      WHERE status = 'completed'
-       AND completed_at LIKE '%${hourStr}:%'
+       AND completed_at LIKE ?
      ORDER BY completed_at DESC LIMIT 3`,
+    [`%${hourStr}:%`],
   );
 
   const patterns = sameTimeTasks.length > 0

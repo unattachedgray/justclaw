@@ -18,9 +18,11 @@ import { registerProcess, retireProcess } from '../process-registry.js';
 import { DISCORD_MAX_LENGTH, splitMessage } from './discord-utils.js';
 import { buildTaskPreamble } from './session-context.js';
 import { findClaudeBin, buildClaudeEnv, buildShellCmd } from '../claude-spawn.js';
+import { computeNextDue } from '../tasks.js';
 
 const log = getLogger('scheduled-tasks');
 const TASK_TIMEOUT_MS = 5 * 60_000; // 5 min max per scheduled task
+const MAX_STALENESS_MS = 2 * 60 * 60_000; // 2 hours — skip tasks older than this
 
 /** Track active scheduled task to prevent overlap. */
 let runningTaskId: number | null = null;
@@ -45,7 +47,7 @@ function getDueTasks(db: DB): DueTask[] {
      FROM tasks
      WHERE recurrence IS NOT NULL
        AND due_at IS NOT NULL
-       AND due_at <= ?
+       AND replace(due_at, 'T', ' ') <= ?
        AND status = 'pending'
      ORDER BY priority ASC, due_at ASC
      LIMIT 1`,
@@ -302,6 +304,48 @@ export async function checkAndRunScheduledTasks(
   }
 
   const task = dueTasks[0];
+
+  // Staleness guard: skip tasks that are way past due (e.g., bot was down).
+  // Advance to next recurrence instead of running a stale report at the wrong time.
+  const dueTime = new Date(task.due_at.replace(' ', 'T') + 'Z').getTime();
+  const nowMs = Date.now();
+  if (nowMs - dueTime > MAX_STALENESS_MS) {
+    log.warn('Skipping stale scheduled task', {
+      taskId: task.id,
+      title: task.title,
+      dueAt: task.due_at,
+      staleByMs: nowMs - dueTime,
+    });
+    // Complete it silently so spawnNextRecurrence creates tomorrow's instance.
+    db.execute(
+      "UPDATE tasks SET status = 'completed', result = 'Skipped: stale (bot was down at scheduled time)', completed_at = ?, updated_at = ? WHERE id = ?",
+      [db.now(), db.now(), task.id],
+    );
+    // Trigger next recurrence spawn via task_complete logic.
+    const existing = db.fetchone('SELECT * FROM tasks WHERE id = ?', [task.id]);
+    if (existing?.recurrence) {
+      const nextDue = computeNextDue(existing.recurrence as string, existing.due_at as string);
+      db.execute(
+        `INSERT INTO tasks (title, description, priority, tags, due_at, depends_on, recurrence, recurrence_source_id, target_channel, session_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, '', ?, ?, ?, ?, ?, ?)`,
+        [existing.title, existing.description, existing.priority, existing.tags, nextDue,
+         existing.recurrence, (existing.recurrence_source_id || existing.id), existing.target_channel || null, existing.session_id || null,
+         db.now(), db.now()],
+      );
+      const next = db.fetchone('SELECT id, due_at FROM tasks ORDER BY id DESC LIMIT 1');
+      log.info('Spawned next recurrence after stale skip', { nextId: next?.id, nextDue: next?.due_at });
+
+      // Notify Discord about the skip.
+      try {
+        const skipChannel = await resolveChannel(client, task, fallbackChannelId);
+        if (skipChannel) {
+          await skipChannel.send(`⏭️ **Skipped stale task:** ${task.title} (was due ${task.due_at} UTC, bot was offline). Next run: ${next?.due_at} UTC.`);
+        }
+      } catch (e: unknown) { log.warn('Failed to post stale-skip notice', { error: String(e) }); }
+    }
+    return;
+  }
+
   runningTaskId = task.id;
 
   log.info('Executing scheduled task', { id: task.id, title: task.title, dueAt: task.due_at, targetChannel: task.target_channel });

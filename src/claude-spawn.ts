@@ -24,10 +24,20 @@ export function findClaudeBin(): string {
   return 'claude';
 }
 
-/** Build the env for claude -p spawns: inherit + JUSTCLAW_NO_DASHBOARD + strip CLAUDECODE. */
+/** Build the env for claude -p spawns: explicit allowlist to avoid leaking secrets. */
 export function buildClaudeEnv(channelId?: string): Record<string, string | undefined> {
-  const e: Record<string, string | undefined> = { ...process.env, JUSTCLAW_NO_DASHBOARD: '1' };
-  delete e.CLAUDECODE;
+  const e: Record<string, string | undefined> = {
+    HOME: process.env.HOME,
+    PATH: process.env.PATH,
+    USER: process.env.USER,
+    LANG: process.env.LANG,
+    TERM: process.env.TERM,
+    JUSTCLAW_ROOT: process.env.JUSTCLAW_ROOT || process.cwd(),
+    JUSTCLAW_CONFIG: process.env.JUSTCLAW_CONFIG,
+    JUSTCLAW_NO_DASHBOARD: '1',
+    GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+    NODE_ENV: process.env.NODE_ENV,
+  };
   if (channelId) e.JUSTCLAW_CHANNEL_ID = channelId;
   return e;
 }
@@ -127,7 +137,7 @@ export function spawnClaudeP(opts: ClaudePOptions): Promise<ClaudePResult> {
       if (outputFormat === 'json') {
         try {
           const parsed = JSON.parse(text);
-          text = parsed.result || text;
+          text = parsed.result ?? text;
           if (parsed.session_id) sessionId = parsed.session_id;
         } catch {
           // Use raw stdout if JSON parse fails.
@@ -140,7 +150,7 @@ export function spawnClaudeP(opts: ClaudePOptions): Promise<ClaudePResult> {
           try {
             const event = JSON.parse(line);
             if (event.type === 'result') {
-              text = event.result || text;
+              text = event.result ?? text;
               if (event.session_id) sessionId = event.session_id;
               break;
             }

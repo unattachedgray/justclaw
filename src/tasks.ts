@@ -3,6 +3,13 @@ import { z } from 'zod';
 import type { DB } from './db.js';
 import { cronNext } from './cron.js';
 
+/** Normalize due_at to SQLite datetime format (space separator, no T). */
+function normalizeDueAt(due: string | null | undefined): string | null {
+  if (!due) return null;
+  // Replace ISO 'T' separator with space to match SQLite datetime('now') format
+  return due.replace('T', ' ').slice(0, 19);
+}
+
 /** Add random jitter of -2 to +3 minutes to a date. Makes scheduled tasks look natural. */
 function applyJitter(date: Date): Date {
   const jitterMs = (Math.random() * 5 - 2) * 60_000; // -2min to +3min
@@ -10,8 +17,10 @@ function applyJitter(date: Date): Date {
 }
 
 /** Compute the next due date from a recurrence pattern and a base date. */
-function computeNextDue(recurrence: string, baseDue: string | null): string {
-  const base = baseDue ? new Date(baseDue) : new Date();
+export function computeNextDue(recurrence: string, baseDue: string | null): string {
+  // Ensure UTC interpretation: append 'Z' if no timezone indicator present
+  const raw = baseDue ? baseDue.replace(' ', 'T') : null;
+  const base = raw ? new Date(raw.endsWith('Z') ? raw : raw + 'Z') : new Date();
   switch (recurrence) {
     case 'daily':
       base.setDate(base.getDate() + 1);
@@ -76,7 +85,7 @@ export function registerTaskTools(server: McpServer, db: DB): void {
       const now = db.now();
       const result = db.execute(
         'INSERT INTO tasks (title, description, priority, tags, due_at, depends_on, recurrence, target_channel, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [title, description, priority, tags, due_at || null, depends_on, recurrence || null, effectiveChannel, now, now],
+        [title, description, priority, tags, normalizeDueAt(due_at), depends_on, recurrence || null, effectiveChannel, now, now],
       );
       const task = { id: result.lastInsertRowid, title, status: 'pending', priority, depends_on, recurrence: recurrence || null, target_channel: effectiveChannel };
       return { content: [{ type: 'text', text: JSON.stringify(task, null, 2) }] };

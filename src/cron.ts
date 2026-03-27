@@ -35,6 +35,7 @@ export function parseCronField(field: string, min: number, max: number): number[
 
 /**
  * Compute the next occurrence of a 5-field cron expression after `after`.
+ * All times are in UTC to match db.now() which uses toISOString().
  * Searches up to 366 days ahead to avoid infinite loops.
  */
 export function cronNext(expr: string, after: Date): Date {
@@ -49,39 +50,39 @@ export function cronNext(expr: string, after: Date): Date {
 
   // Start one minute after `after` to ensure we always advance
   const candidate = new Date(after.getTime());
-  candidate.setSeconds(0, 0);
-  candidate.setMinutes(candidate.getMinutes() + 1);
+  candidate.setUTCSeconds(0, 0);
+  candidate.setUTCMinutes(candidate.getUTCMinutes() + 1);
 
   const limit = after.getTime() + 366 * 24 * 60 * 60 * 1000;
 
   while (candidate.getTime() <= limit) {
-    const mon = candidate.getMonth() + 1; // JS months are 0-based
+    const mon = candidate.getUTCMonth() + 1; // JS months are 0-based
     if (!months.includes(mon)) {
       // Jump to first day of next month
-      candidate.setMonth(candidate.getMonth() + 1, 1);
-      candidate.setHours(0, 0, 0, 0);
+      candidate.setUTCMonth(candidate.getUTCMonth() + 1, 1);
+      candidate.setUTCHours(0, 0, 0, 0);
       continue;
     }
 
-    const dom = candidate.getDate();
-    const dow = candidate.getDay();
+    const dom = candidate.getUTCDate();
+    const dow = candidate.getUTCDay();
     if (!daysOfMonth.includes(dom) || !daysOfWeek.includes(dow)) {
       // Jump to next day
-      candidate.setDate(candidate.getDate() + 1);
-      candidate.setHours(0, 0, 0, 0);
+      candidate.setUTCDate(candidate.getUTCDate() + 1);
+      candidate.setUTCHours(0, 0, 0, 0);
       continue;
     }
 
-    const hr = candidate.getHours();
+    const hr = candidate.getUTCHours();
     if (!hours.includes(hr)) {
       // Jump to next hour
-      candidate.setHours(candidate.getHours() + 1, 0, 0, 0);
+      candidate.setUTCHours(candidate.getUTCHours() + 1, 0, 0, 0);
       continue;
     }
 
-    const min = candidate.getMinutes();
+    const min = candidate.getUTCMinutes();
     if (!minutes.includes(min)) {
-      candidate.setMinutes(candidate.getMinutes() + 1, 0, 0);
+      candidate.setUTCMinutes(candidate.getUTCMinutes() + 1, 0, 0);
       continue;
     }
 

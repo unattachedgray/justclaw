@@ -10,8 +10,27 @@
  */
 
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { resolve } from 'path';
+import { resolve, join } from 'path';
+import { readFileSync } from 'fs';
 import { getLogger } from './logger.js';
+
+// Load .env if GEMINI_API_KEY (or other secrets) not already in env.
+function loadDotEnv(): void {
+  try {
+    const root = process.env.JUSTCLAW_ROOT || process.cwd();
+    const lines = readFileSync(join(root, '.env'), 'utf-8').split('\n');
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith('#')) continue;
+      const eq = trimmed.indexOf('=');
+      if (eq > 0) {
+        const key = trimmed.slice(0, eq);
+        if (!process.env[key]) process.env[key] = trimmed.slice(eq + 1);
+      }
+    }
+  } catch { /* no .env file */ }
+}
+loadDotEnv();
 import {
   writePidFile,
   removePidFile,

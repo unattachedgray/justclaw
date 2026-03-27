@@ -35,18 +35,31 @@ function pidFilePath(): string {
   return join(projectRoot(), 'data', 'dashboard.pid');
 }
 
+function isOurDashboardProcess(pid: number): boolean {
+  try {
+    const cmdline = readFileSync(`/proc/${pid}/cmdline`, 'utf-8');
+    return cmdline.includes('justclaw') || cmdline.includes('dist/dashboard');
+  } catch {
+    return false; // process doesn't exist
+  }
+}
+
 function writeDashboardPid(): void {
   const path = pidFilePath();
   mkdirSync(dirname(path), { recursive: true });
   if (existsSync(path)) {
     try {
       const oldPid = parseInt(readFileSync(path, 'utf-8').trim(), 10);
-      if (oldPid !== process.pid) {
+      if (oldPid !== process.pid && isOurDashboardProcess(oldPid)) {
         process.kill(oldPid, 'SIGTERM');
+        // Wait for old process to release SQLite WAL locks
+        const deadline = Date.now() + 3000;
+        while (Date.now() < deadline) {
+          try { process.kill(oldPid, 0); } catch { break; } // process gone
+          Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 100);
+        }
       }
-    } catch {
-      /* ignore */
-    }
+    } catch { /* stale PID file or process already dead, safe to overwrite */ }
   }
   writeFileSync(path, String(process.pid));
 }
@@ -57,9 +70,7 @@ function cleanupDashboard(): void {
     if (existsSync(path) && readFileSync(path, 'utf-8').trim() === String(process.pid)) {
       unlinkSync(path);
     }
-  } catch {
-    /* ignore */
-  }
+  } catch { /* PID file already removed or locked, non-critical during shutdown */ }
 }
 
 // Keep the process alive on unhandled errors.
@@ -145,6 +156,19 @@ function main(): void {
   });
 
   // --- Protected routes ---
+
+  app.get('/debug/memory', (c) => {
+    if (typeof globalThis.gc === 'function') globalThis.gc();
+    const mem = process.memoryUsage();
+    return c.json({
+      rss_mb: Math.round(mem.rss / 1048576),
+      heapTotal_mb: Math.round(mem.heapTotal / 1048576),
+      heapUsed_mb: Math.round(mem.heapUsed / 1048576),
+      external_mb: Math.round(mem.external / 1048576),
+      arrayBuffers_mb: Math.round(mem.arrayBuffers / 1048576),
+      uptime_s: Math.round(process.uptime()),
+    });
+  });
 
   // Dashboard HTML page.
   app.get('/', (c) => c.html(DASHBOARD_HTML));

@@ -21,13 +21,19 @@ export function removeClient(client: SseClient): void {
 
 export function pushEvent(event: string, data: string = ''): void {
   const msg = `event: ${event}\ndata: ${data}\n\n`;
+  const dead: SseClient[] = [];
   for (const client of clients) {
-    if (client.closed) continue;
+    if (client.closed) { dead.push(client); continue; }
     try {
       client.controller.enqueue(msg);
-    } catch {
-      /* client disconnected */
+    } catch { /* client disconnected, mark for removal */
+      client.closed = true;
+      dead.push(client);
     }
+  }
+  // Remove dead clients outside the iteration loop
+  for (const client of dead) {
+    removeClient(client);
   }
 }
 

@@ -98,8 +98,14 @@ export async function fetchUrl(config: UrlConfig): Promise<UrlResult> {
   }
 }
 
+// Only allow known-safe commands to prevent injection
+const ALLOWED_CMD_PREFIXES = /^(df|free|uptime|curl|pm2|cat|wc|du|echo|date|uname|ss|ps|head|tail|awk|grep|sqlite3)\b/;
+
 /** Execute a shell command with timeout (default 10s). */
 export function runCommand(config: CommandConfig): CommandResult {
+  if (!ALLOWED_CMD_PREFIXES.test(config.command.trim())) {
+    return { stdout: '', stderr: `Command not in allowlist: ${config.command.split(' ')[0]}`, exitCode: 1 };
+  }
   const timeout = config.timeout ?? 10_000;
   try {
     const stdout = execSync(config.command, {

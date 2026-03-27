@@ -26,11 +26,12 @@ module.exports = {
     {
       name: 'justclaw-dashboard',
       script: 'dist/dashboard/app.js',
+      node_args: '--max-old-space-size=96 --expose-gc',
       cwd: ROOT,
-      kill_timeout: 5000,        // 5s graceful shutdown before SIGKILL
+      kill_timeout: 10000,       // 10s — allow SQLite WAL locks to release
       max_restarts: 10,          // Crash-loop protection
       min_uptime: 5000,          // Must survive 5s to count as "started"
-      max_memory_restart: '200M', // Restart if memory leak
+      max_memory_restart: '200M', // Safe with --max-old-space-size=96
       env: {
         JUSTCLAW_ROOT: ROOT,
         JUSTCLAW_CONFIG: join(ROOT, 'config/charlie.toml'),
@@ -56,6 +57,7 @@ module.exports = {
         DISCORD_HEARTBEAT_CHANNEL_ID: dotenv.DISCORD_HEARTBEAT_CHANNEL_ID || '',
         HEARTBEAT_INTERVAL_MS: dotenv.HEARTBEAT_INTERVAL_MS || '300000',
         JUSTCLAW_DEBUG: dotenv.JUSTCLAW_DEBUG || process.env.JUSTCLAW_DEBUG || '',
+        GEMINI_API_KEY: dotenv.GEMINI_API_KEY || '',
         PATH: process.env.PATH,
       },
     },
