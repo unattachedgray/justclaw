@@ -32,14 +32,16 @@ justclaw will never:
 
 ## What it provides
 
-### Core (49 MCP Tools)
+### Core (56 MCP Tools)
 
-- **Memory (6)** — save, search, recall, forget, list, consolidate. FTS5 full-text search, namespaces, access tracking, expiry.
+- **Memory (6)** — save, search, recall, forget, list, consolidate. FTS5 full-text search, namespaces, access tracking, expiry. Autodream-inspired consolidation: fuzzy dedup, temporal normalization, stale file detection.
 - **Tasks (6)** — create, update, list, next, claim, complete. Dependencies, agent claiming, recurring tasks with cron, auto-execute, per-task Discord channel routing.
 - **Context (5)** — flush, restore, today, daily_log_add/get. Compaction lifecycle with automatic flush reminders.
 - **Conversations (4)** — log, history, search, summary. FTS5 across channels.
 - **Goals (3)** — set, list, archive. Persistent objectives that drive daily task generation.
 - **Learnings (3)** — add, search, stats. Structured self-improvement from errors, corrections, and discoveries.
+- **Gemini AI (5)** — image_generate, image_edit, pdf_analyze, vision_analyze, gemini_search. Photorealistic image generation and iterative editing, visual PDF understanding, OCR/vision analysis, Google Search-grounded answers with citations. Tool descriptions steer Claude to prefer native capabilities (Read, WebSearch) over API calls.
+- **Alerts (2)** — alert_silence, alert_whitelist. Suppress recurring heartbeat alerts.
 
 ### Document Analysis (NotebookLM-style)
 
@@ -71,7 +73,7 @@ justclaw will never:
 ### Session Continuity ("Always-On Agent")
 
 - **Session persistence** — session IDs stored in SQLite, survive bot restarts. `--resume` works across sessions.
-- **Identity preamble** — every prompt prepended with: last context snapshot, active goals, pending tasks, today's activity, recent learnings, time since last interaction.
+- **Identity preamble** — every prompt prepended with: last context snapshot, active goals, pending tasks, today's activity, recent learnings, Claude Code auto memory bridge, available skills catalog, time since last interaction.
 - **Message coalescing** — multiple queued messages batched into one prompt (1s window).
 - **Pre-compaction flush** — auto-reminds agent to save state at 20+ turns.
 - **Session rotation** — fresh start at 30+ turns or daily, with structured handover.
@@ -86,7 +88,7 @@ justclaw will never:
 
 ### Health Monitoring
 
-- **9 deterministic checks** every 5 minutes ($0/cycle): process audit, stale process scan, PM2 health, unanswered messages, system status, stuck tasks, doc staleness, event loop, memory usage.
+- **10 deterministic checks** every 5 minutes ($0/cycle): process audit, stale process scan, PM2 health, unanswered messages, system status, stuck tasks, doc staleness, event loop, memory usage, system resources.
 - **Goal-driven LLM escalation** — when deterministic checks fail for 3+ cycles, Claude diagnoses and recommends fixes. Past diagnoses feed into future escalation prompts.
 - **Healing verification** — re-checks at 2 min after escalation claims resolution.
 
@@ -102,7 +104,7 @@ justclaw will never:
 
 ### Infrastructure
 
-- **Web dashboard** — Hono :8787 with SSE, themes, persistent auth. Tab bar shows token sparkline (7d), agent throughput (runs/duration/success%), and Claude Code stats. Overview panels: work queue, scheduled tasks, memories, conversations, alerts, daily log, activity heatmap (EDT, log scale), monitor status grid, agent intelligence (learnings/goals/memory distribution), Claude Code sessions.
+- **Web dashboard** — Hono :8787 with SSE, themes, persistent auth. Tab bar shows token sparkline (7d), agent throughput (runs/duration/success%), and Claude Code stats. Overview panels: work queue, scheduled tasks, memories, conversations, alerts, daily log, activity heatmap (EDT, log scale), monitor status grid, system resources (live memory chart with per-process breakdown), agent intelligence (learnings/goals/memory distribution), Claude Code sessions.
 - **7 default monitors** — dashboard uptime, disk/RAM usage, Discord bot health, GitHub repo, Bitcoin price, Anthropic API status. Colored status pills on the dashboard.
 - **Safe deploy** — `npm run deploy` builds, tests, git-tags, restarts, monitors for 60s, auto-rolls back on crash loop.
 - **Crash watchdog** — cron (2min) detects crash loops, auto-reverts to last stable tag.
@@ -133,7 +135,7 @@ If you just want persistent memory and tasks for Claude Code:
 npm install && npm run build
 ```
 
-Run `claude` from this directory. The `.mcp.json` auto-registers all 49 tools.
+Run `claude` from this directory. The `.mcp.json` auto-registers all 56 tools.
 
 ### Chrome Extension (Browser Bridge)
 
@@ -174,12 +176,12 @@ pm2 start ecosystem.config.cjs
 ## Architecture
 
 ```
-Claude Code CLI ──> justclaw MCP Server (stdio, 49 tools)
+Claude Code CLI ──> justclaw MCP Server (stdio, 56 tools)
                            │
                 SQLite (WAL, FTS5, schema v14)
                     │          │              │
               Dashboard    Discord Bot    Heartbeat
-              Hono :8787   discord.js     9 checks + monitors
+              Hono :8787   discord.js     10 checks + monitors
               read-only    claude -p       adaptive thresholds
                            streaming       flap detection
                            sessions        LLM escalation
@@ -201,6 +203,11 @@ Claude Code CLI ──> justclaw MCP Server (stdio, 49 tools)
 | `DISCORD_HEARTBEAT_CHANNEL_ID` | No | first channel | Where health alerts are posted |
 | `HEARTBEAT_INTERVAL_MS` | No | 300000 | Health check interval (ms) |
 | `DASHBOARD_PASSWORD` | No | changeme | Dashboard login password |
+| `GEMINI_API_KEY` | For images | — | Google Gemini API key for image gen/edit, PDF analysis, vision |
+| `SMTP_HOST` | For email | — | SMTP server (e.g., smtp.gmail.com) |
+| `SMTP_PORT` | For email | 587 | SMTP port |
+| `SMTP_USER` | For email | — | SMTP login username |
+| `SMTP_PASS` | For email | — | SMTP password or app password |
 
 ### Persona (`config/charlie.toml`)
 
@@ -222,7 +229,7 @@ pm2 logs justclaw-discord     # View bot logs
 
 | Document | Content |
 |----------|---------|
-| [CLAUDE.md](CLAUDE.md) | Development guide, architecture, all 49 MCP tools + 70 browser commands |
+| [CLAUDE.md](CLAUDE.md) | Development guide, architecture, all 56 MCP tools + 70 browser commands |
 | [docs/MCP-TOOLS.md](docs/MCP-TOOLS.md) | Complete MCP tool reference |
 | [docs/DISCORD-BOT.md](docs/DISCORD-BOT.md) | Discord bot internals, session continuity |
 | [docs/PROCESS-MANAGEMENT.md](docs/PROCESS-MANAGEMENT.md) | Process registry and kill policy |

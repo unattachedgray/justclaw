@@ -212,6 +212,22 @@ if [ ! -f "$ROOT/.env" ]; then
   else
     warn "Skipping email setup. Edit .env later to add SMTP_* variables."
   fi
+
+  echo ""
+  log "=== Gemini AI Setup (optional) ==="
+  echo ""
+  echo "  Enables image generation/editing, visual PDF analysis, and grounded search."
+  echo "  Get a free API key at: https://aistudio.google.com/apikey"
+  echo ""
+
+  ask "Enter Gemini API key (or Enter to skip):"
+  read -r GEMINI_KEY_VAL
+  if [ -n "$GEMINI_KEY_VAL" ]; then
+    sed -i "s/^GEMINI_API_KEY=.*/GEMINI_API_KEY=$GEMINI_KEY_VAL/" "$ROOT/.env"
+    log "Gemini API key saved to .env"
+  else
+    warn "Skipping Gemini setup. Edit .env later to add GEMINI_API_KEY."
+  fi
 else
   log ".env already exists, skipping configuration"
 fi
