@@ -45,7 +45,7 @@ The result: Claude Code sessions that **persist across restarts**, **self-heal w
 │  │  └────┬────┘ └──┬───┘ └───┬────┘ │ selectors       ││  │
 │  │       │         │         │      └─────────────────┘│  │
 │  │  ┌────┴─────────┴─────────┴──────────────────────┐  │  │
-│  │  │      SQLite (WAL, FTS5, schema v14)           │  │  │
+│  │  │      SQLite (WAL, FTS5, schema v15)           │  │  │
 │  │  └───────────────────────────────────────────────┘  │  │
 │  └───────────────────────────────────────────────────────┘  │
 │        │              │              │                       │
@@ -128,9 +128,12 @@ Dependencies, agent claiming, recurring tasks with cron expressions, per-task ou
 Inspired by Nous Research's Hermes Agent, justclaw continuously learns from its own execution:
 
 - **Auto Skill Extraction** — when a task scores 80+, the system records what worked (sections found, duration, content quality) as a `skill` learning. One per template per week to avoid noise.
-- **Proactive Learning Injection** — task preambles include area-relevant learnings and high-confidence playbook entries. If email failed yesterday, today's report task knows about it before starting.
+- **Proactive Learning Injection** — task preambles include area-relevant learnings, high-confidence playbook entries, and past execution results. If email failed yesterday, today's report task knows about it before starting.
+- **Priority-Based Context Assembly** — preamble sections are scored by priority and trimmed to a 4K token budget. Low-priority items (daily log, older skills) are dropped first. Inspired by Cursor's "Preempt" system.
 - **Template Performance Tracking** — per-template stats (run count, avg score, avg duration, success streak) stored in the `state` table. After 3+ runs, stats are injected into task preambles. Three consecutive failures auto-record an error learning.
-- **Playbook Crystallization** — learnings applied 3+ times are promoted to playbook entries with Bayesian confidence scoring. Unused entries decay over 30 days.
+- **Enhanced Playbooks** — learnings applied 3+ times are promoted to playbook entries with Bayesian confidence scoring, success criteria, guardrails, and auto-extracted step-by-step procedures. Unused entries decay over 30 days.
+- **Step Budgets** — tasks can have `max_steps` limits enforced during `claude -p` execution. Prevents runaway agent loops (a key failure mode identified in AutoGPT analysis).
+- **Git Checkpoints** — HEAD ref saved before tasks that modify repos. Enables rollback on failure. Inspired by Cline's checkpoint/rollback system.
 
 ### 🔍 Health Monitoring (10 checks, $0/cycle)
 
@@ -173,7 +176,7 @@ Image generation and iterative editing, PDF analysis, vision/OCR, Google Search-
   save to /tmp/                  mark complete
 ```
 
-Templates use a `---DELIVERY---` separator. Everything above is the AI prompt; everything below is shell commands executed deterministically at the scheduled time. Lead time via `lead:N` tag — task starts N minutes early, delivery waits.
+Templates use `---DELIVERY---` and `---SCHEMA---` separators. Everything above `---DELIVERY---` is the AI prompt; delivery commands run deterministically at the scheduled time. `---SCHEMA---` defines expected output structure (required sections, min content length, link verification) for post-task validation. Lead time via `lead:N` tag — task starts N minutes early, delivery waits.
 
 ### 🛡️ Infrastructure
 
@@ -182,6 +185,10 @@ Templates use a `---DELIVERY---` separator. Everything above is the AI prompt; e
 - **Safe deploy** — `npm run deploy` builds, tests, git-tags, restarts, monitors 60s, auto-rolls back on crash
 - **Crash watchdog** — cron detects crash loops, auto-reverts to last stable tag
 - **Process registry** — 3-layer kill policy with PID reuse protection and safety scoring
+- **Filter pipeline** — composable middleware for all `claude -p` calls (token metering, audit logging, duration tracking)
+- **Message routing** — deterministic intent classifier routes Discord messages to focused prompts before LLM fallback
+- **Workflow engine** — chain multiple task templates into sequential pipelines with dependency management
+- **Shadow validation** — `tsc --noEmit` check for tasks that modify TypeScript code
 
 ### 🛠️ Development Skills
 
@@ -281,15 +288,60 @@ pm2 logs justclaw-discord     # View bot logs
 | [docs/BROWSER-BRIDGE.md](docs/BROWSER-BRIDGE.md) | Browser automation (70 commands) |
 | [docs/DASHBOARD.md](docs/DASHBOARD.md) | Dashboard API, widgets, monitors |
 | [docs/PROCESS-MANAGEMENT.md](docs/PROCESS-MANAGEMENT.md) | Process registry and kill policy |
-| [docs/SCHEMA.md](docs/SCHEMA.md) | Database schema (v14) |
+| [docs/SCHEMA.md](docs/SCHEMA.md) | Database schema (v15) |
+| [docs/development.md](docs/development.md) | Development roadmap (13-project analysis) |
 
 ## Roadmap
 
+- [x] Two-phase scheduled tasks (prep + deterministic delivery)
+- [x] Self-improvement loop (Hermes-inspired skill extraction, playbook crystallization)
+- [x] 15 agent-inspired features from 13-project analysis (see [development.md](docs/development.md))
 - [ ] Multi-agent coordination (parallel claude -p with shared task queue)
 - [ ] Webhook triggers (GitHub, Slack, email → auto-create tasks)
 - [ ] Plugin system for custom MCP tool modules
 - [ ] Mobile dashboard (PWA)
 - [ ] Voice interface via Discord voice channels
+
+## Release Notes
+
+### v0.3.0 — Agent Intelligence (2026-03-27)
+
+15 features inspired by analysis of 13 agent frameworks (CrewAI, AutoGen, LangGraph, OpenHands, SWE-Agent, Aider, MetaGPT, Devin, Cursor, Cline, AutoGPT, Semantic Kernel, BabyAGI):
+
+- **Priority-based context assembly** — preamble sections scored and trimmed to token budget (from Cursor)
+- **Past execution injection** — task preamble shows last 3 runs of same template (from BabyAGI)
+- **Git checkpoints** — HEAD ref saved before tasks that modify repos (from Cline)
+- **Enhanced reflection** — output file verification, git success detection, thin section detection (from MetaGPT)
+- **Step budgets** — `max_steps` on tasks, enforced during streaming (from AutoGPT failures)
+- **Enhanced playbooks** — success criteria, guardrails, auto-extracted steps (from Devin)
+- **Filter pipeline** — composable middleware for all `claude -p` calls (from Semantic Kernel)
+- **Output schemas** — `---SCHEMA---` section in templates for structural validation (from MetaGPT)
+- **Watch/subscribe filtering** — concern mapping for targeted escalation (from MetaGPT)
+- **Token-aware condensation** — flush based on token estimates, not just turn count (from OpenHands)
+- **Resumable checkpoints** — `task_checkpoints` table for intermediate state (from LangGraph)
+- **Hybrid speaker routing** — deterministic message classifier before LLM fallback (from AutoGen)
+- **Trigger-based skills** — keyword detection injects only relevant skills (from OpenHands)
+- **Shadow validation** — `tsc --noEmit` for tasks modifying TypeScript (from Cursor)
+- **Workflow chaining** — sequential task pipelines from workflow definitions (from CrewAI)
+
+Schema v14 → v15. 5 new source files. Full analysis in [docs/development.md](docs/development.md).
+
+### v0.2.0 — Self-Improvement & Two-Phase Tasks (2026-03-27)
+
+- **Two-phase scheduled tasks** — templates split on `---DELIVERY---`; AI prepares during lead time, deterministic scripts deliver at `due_at`
+- **Auto skill extraction** — successful tasks auto-record what worked as skill learnings
+- **Proactive learning injection** — area-relevant learnings and playbook entries in task preambles
+- **Template performance tracking** — per-template stats with failure streak detection
+- **20-minute task timeout** — up from 8 minutes; prevents premature SIGTERM on research-heavy reports
+
+### v0.1.0 — Foundation
+
+- 57 MCP tools (memory, tasks, goals, learnings, notebooks, monitors, conversations, context, process, system)
+- Discord bot with streaming progress, session continuity, circuit breaker
+- 9 deterministic heartbeat checks ($0/cycle)
+- Browser bridge (70 commands via Chrome extension)
+- Goal-driven LLM escalation with healing verification
+- Dashboard (Hono :8787) with activity heatmap, token usage, monitors
 
 ## License
 

@@ -1,6 +1,6 @@
 # justclaw — Persistence & automation layer for Claude Code CLI
 
-SQLite-backed MCP server (52 tools) + Chrome browser bridge (70 commands) + Discord bot + deterministic heartbeat + self-healing process management. TypeScript, Node.js 20+, Linux.
+SQLite-backed MCP server (57 tools) + Chrome browser bridge (70 commands) + Discord bot + deterministic heartbeat + self-healing process management. TypeScript, Node.js 20+, Linux.
 
 **Philosophy**: Deterministic code first, LLM only when reasoning is genuinely needed. Claude Code CLI is the brain; justclaw is the long-term memory, task queue, and lifecycle harness.
 
@@ -18,15 +18,15 @@ SQLite-backed MCP server (52 tools) + Chrome browser bridge (70 commands) + Disc
 | **Node.js** | v22+ |
 | **Discord channel** | Private server, single-user (Julian) |
 | **PM2 services** | `justclaw-dashboard` (Hono :8787), `justclaw-discord` (bot + heartbeat) |
-| **Database** | `data/charlie.db` (SQLite, WAL, FTS5, schema v14) |
+| **Database** | `data/charlie.db` (SQLite, WAL, FTS5, schema v15) |
 | **Debug mode** | Set `JUSTCLAW_DEBUG=1` in `.env` to suppress LLM escalation |
 
 ## Architecture
 
 ```
-Claude Code CLI → justclaw MCP Server (stdio, 52 tools)
+Claude Code CLI → justclaw MCP Server (stdio, 57 tools)
                          ↓
-              SQLite (data/charlie.db, WAL, FTS5, schema v14)
+              SQLite (data/charlie.db, WAL, FTS5, schema v15)
                     ↓         ↓              ↓              ↓
               Dashboard   Discord Bot    Heartbeat       Browser Bridge
               Hono:8787   discord.js     9 checks        Chrome extension
@@ -48,19 +48,19 @@ pm2 save                           # Persist for reboot
 | File | Purpose |
 |------|---------|
 | `src/index.ts` | MCP server entry: PID mgmt, signals, stdio transport |
-| `src/server.ts` | Registers all 49 MCP tools |
-| `src/db.ts` | SQLite schema v14, FTS5, migrations, integrity check, backup |
+| `src/server.ts` | Registers all 57 MCP tools |
+| `src/db.ts` | SQLite schema v15, FTS5, migrations, integrity check, backup |
 | `src/process-registry.ts` | PID tracking, safety scoring, suspicious detection, malfunction escalation |
 | `src/discord/bot.ts` | Discord bot: streaming progress, per-channel queue, circuit breaker, graceful shutdown |
 | `src/email.ts` | SMTP email utility (Gmail app password): sendEmail(), verifySmtp() |
 | `src/discord/heartbeat.ts` | Heartbeat orchestrator: deterministic checks, dedup, presence flash, escalation |
-| `src/discord/heartbeat-checks.ts` | 9 pure TypeScript health checks |
+| `src/discord/heartbeat-checks.ts` | 9 health checks + CHECK_CONCERNS mapping for targeted escalation |
 | `src/discord/escalation.ts` | Goal-driven LLM escalation for persistent issues |
 | `src/discord/anticipation.ts` | Predicts what user needs next: signal gathering + LLM synthesis |
 | `src/discord/discord-utils.ts` | Shared Discord utilities: code-block-aware message splitting |
 | `src/discord/scheduled-tasks.ts` | Two-phase scheduled task executor: prep (AI) + delivery (deterministic scripts) |
 | `src/discord/task-delivery.ts` | Deterministic delivery phase: pending delivery queue, email/script execution at due_at |
-| `src/discord/session-context.ts` | Session continuity: identity preamble, rotation logic, flush thresholds |
+| `src/discord/session-context.ts` | Priority-based preamble assembly, trigger-based skills, token condensation |
 | `src/claude-spawn.ts` | Shared Claude CLI utilities: findClaudeBin, buildClaudeEnv, buildShellCmd, spawnClaudeP |
 | `src/notebooks.ts` | NotebookLM-style document analysis: ingestion, chunking, FTS5 search, source grounding |
 | `src/monitors.ts` | Metric monitoring engine: URL/command sources, extractors, condition evaluation |
@@ -68,11 +68,15 @@ pm2 save                           # Persist for reboot
 | `src/extractors.ts` | Multi-format document extraction: PDF, DOCX, XLSX, PPTX, HTML, EPUB, images |
 | `src/gemini.ts` | Gemini AI: image gen/edit, PDF analysis, vision, grounded search (5 tools) |
 | `src/time-utils.ts` | Shared timezone utilities: formatLocalTime, dual display, state-driven home/current tz |
-| `src/task-templates.ts` | Task template resolver: `{{variable}}` interpolation, `---DELIVERY---` phase splitting, built-in date vars |
+| `src/task-templates.ts` | Template resolver: `{{variable}}` interpolation, `---DELIVERY---`/`---SCHEMA---` splitting |
 | `src/tasks-scheduling.ts` | Extracted scheduling tools: duplicate, create_from_template, update_var |
-| `src/playbook.ts` | Learned remediation patterns: consult, record, confidence scoring, crystallization, decay |
-| `src/discord/quality-scan.ts` | Deterministic quality analysis: error patterns, section detection, scoring |
+| `src/playbook.ts` | Remediation patterns: confidence scoring, crystallization, success criteria, auto-enhance |
+| `src/discord/quality-scan.ts` | Quality analysis: error patterns, section detection, output verification, thin sections |
 | `src/discord/reflect.ts` | Post-task/escalation reflection: skill extraction, template stats, playbook updates |
+| `src/discord/message-router.ts` | Deterministic Discord message classifier for intent-based prompt routing |
+| `src/claude-filters.ts` | Composable middleware pipeline: token metering, audit logging, duration tracking |
+| `src/task-checkpoints.ts` | Task checkpoints, git checkpoint before tasks, shadow validation |
+| `src/workflows.ts` | Multi-step workflow engine: parse definitions, chain tasks with dependencies |
 | `data/task-templates/` | Template files for recurring tasks (e.g., `daily-report.md`) |
 | `scripts/prediction-tracker.ts` | Deterministic investment prediction tracker (CLI, JSON-backed) |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
