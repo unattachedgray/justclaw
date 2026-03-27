@@ -189,5 +189,5 @@ export async function extractText(filePath: string): Promise<ExtractionResult> {
 
 /** Safe file size check — returns 0 if stat fails. */
 function tryFileSize(filePath: string): number {
-  try { return statSync(filePath).size; } catch { return 0; }
+  try { return statSync(filePath).size; } catch { /* file missing or inaccessible */ return 0; }
 }

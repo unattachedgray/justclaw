@@ -2,6 +2,7 @@
 
 import { getEditModeScripts } from './html-edit-mode.js';
 import { getHeatmapScripts, getQuickActionsScripts, getClaudeSessionsScripts, getWidgetScripts, getInitScripts } from './html-extras.js';
+import { getResourceScripts } from './html-resources.js';
 
 export function getDashboardScripts(): string {
   return `
@@ -58,7 +59,7 @@ function updateClock() {
   }
 }
 async function fetchUptime() {
-  try { const d = await api('uptime'); _startTime = d.start_time; } catch {}
+  try { const d = await api('uptime'); _startTime = d.start_time; } catch { /* uptime endpoint unavailable, keep showing last known value */ }
 }
 
 function esc(s) {
@@ -103,6 +104,9 @@ ${getQuickActionsScripts()}
 
 // --- Claude Sessions ---
 ${getClaudeSessionsScripts()}
+
+// --- System Resources ---
+${getResourceScripts()}
 
 // --- Dashboard Widgets ---
 ${getWidgetScripts()}
@@ -319,6 +323,7 @@ async function refreshOverview() {
     fetchAgentThroughput();
     fetchMonitorStatus();
     fetchAgentIntelligence();
+    fetchResources();
     $('status-dot').style.background = 'var(--green)';
   } catch {
     $('status-dot').style.background = 'var(--red)';

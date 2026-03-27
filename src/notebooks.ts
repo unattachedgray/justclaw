@@ -193,7 +193,7 @@ function collectFiles(
   function walk(dir: string, depth: number): void {
     if (depth > maxDepth) return;
     let entries: string[];
-    try { entries = readdirSync(dir); } catch { return; }
+    try { entries = readdirSync(dir); } catch { /* directory unreadable or deleted, skip subtree */ return; }
 
     for (const entry of entries) {
       if (entry.startsWith('.') || entry === 'node_modules' || entry === '__pycache__'
@@ -201,7 +201,7 @@ function collectFiles(
 
       const fullPath = join(dir, entry);
       let stat;
-      try { stat = statSync(fullPath); } catch { continue; }
+      try { stat = statSync(fullPath); } catch { /* file deleted between readdir and stat, skip */ continue; }
 
       if (stat.isDirectory()) {
         walk(fullPath, depth + 1);
@@ -235,7 +235,7 @@ export async function scanDirectory(dirPath: string, maxDepth: number = 5): Prom
       try {
         const content = readFileSync(fullPath, 'utf-8');
         files.push({ path: fullPath, name: basename(fullPath), content, tokenEstimate: estimateTokens(content), mtime });
-      } catch {
+      } catch { /* file unreadable (permissions, encoding, or deleted), track as skipped */
         skipped.push({ path: fullPath, name: basename(fullPath), reason: 'read_error', extension: ext });
       }
     } else {
@@ -379,7 +379,7 @@ function logUnsupportedFormats(
         'notebooks',
       ],
     );
-  } catch { /* best-effort */ }
+  } catch { /* best-effort learning log, DB write failure is non-critical */ }
 }
 
 /** Create or re-ingest a notebook from a directory (incremental). */

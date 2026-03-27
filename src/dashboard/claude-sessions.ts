@@ -48,12 +48,12 @@ function findProjectDirs(): { path: string; name: string }[] {
       .filter((d) => {
         try {
           return statSync(join(base, d)).isDirectory();
-        } catch {
+        } catch { /* entry deleted between readdir and stat, skip */
           return false;
         }
       })
       .map((d) => ({ path: join(base, d), name: d.replace(/-/g, '/').replace(/^\//, '') }));
-  } catch {
+  } catch { /* ~/.claude/projects doesn't exist yet, no sessions to list */
     return [];
   }
 }
@@ -78,7 +78,7 @@ function parseSession(filePath: string, projectName: string): SessionSummary | n
       let entry: AssistantMessage;
       try {
         entry = JSON.parse(line);
-      } catch {
+      } catch { /* malformed JSONL line, skip */
         continue;
       }
 
@@ -129,7 +129,7 @@ function parseSession(filePath: string, projectName: string): SessionSummary | n
       cache_hit_rate: cacheHitRate,
       estimated_cost_usd: Math.round(cost * 100) / 100,
     };
-  } catch {
+  } catch { /* corrupt or truncated session file, skip */
     return null;
   }
 }
@@ -146,7 +146,7 @@ export function getAllSessions(limit = 20): SessionSummary[] {
         const s = parseSession(join(dir.path, file), dir.name);
         if (s) sessions.push(s);
       }
-    } catch {
+    } catch { /* project directory unreadable or deleted, skip */
       continue;
     }
   }

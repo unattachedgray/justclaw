@@ -16,7 +16,7 @@ function pruneOldLogs(dir: string): void {
   let entries: string[];
   try {
     entries = readdirSync(dir);
-  } catch {
+  } catch { /* log directory doesn't exist or unreadable, skip pruning */
     return;
   }
 
@@ -30,9 +30,7 @@ function pruneOldLogs(dir: string): void {
     if (fileDate < cutoff) {
       try {
         unlinkSync(join(dir, name));
-      } catch {
-        /* ignore */
-      }
+      } catch { /* old log file already deleted or locked, skip */ }
     }
   }
 }
@@ -69,9 +67,7 @@ export class Logger {
     const line = JSON.stringify(entry);
     try {
       appendFileSync(this.todayFile(), line + '\n', 'utf-8');
-    } catch {
-      /* ignore */
-    }
+    } catch { /* logging must never crash the app, silently drop the entry */ }
     if (level === 'error' || level === 'warn') {
       process.stderr.write(line + '\n');
     }

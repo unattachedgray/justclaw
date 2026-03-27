@@ -64,7 +64,7 @@ const DEFAULT_GRID_ORDER = ['panel-tasks','panel-scheduled','panel-memories','pa
 const DEFAULT_STAT_ORDER = ['stat-messages','stat-queue','stat-runs','stat-memories','stat-ram','stat-disk'];
 
 function getLayout() {
-  try { return JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; } catch { return {}; }
+  try { return JSON.parse(localStorage.getItem(LAYOUT_KEY)) || {}; } catch { /* corrupt or missing localStorage data, reset to defaults */ return {}; }
 }
 function saveLayout() {
   const grid = document.querySelector('.grid-overview');
