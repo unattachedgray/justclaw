@@ -35,7 +35,7 @@ justclaw will never:
 ### Core (56 MCP Tools)
 
 - **Memory (6)** — save, search, recall, forget, list, consolidate. FTS5 full-text search, namespaces, access tracking, expiry. Autodream-inspired consolidation: fuzzy dedup, temporal normalization, stale file detection.
-- **Tasks (6)** — create, update, list, next, claim, complete. Dependencies, agent claiming, recurring tasks with cron, auto-execute, per-task Discord channel routing.
+- **Tasks (8)** — create, update, list, next, claim, complete, **duplicate**, **create_from_template**. Dependencies, agent claiming, recurring tasks with cron, auto-execute, per-task Discord channel routing. Template system with `{{variable}}` interpolation for reusable scheduled task patterns.
 - **Context (5)** — flush, restore, today, daily_log_add/get. Compaction lifecycle with automatic flush reminders.
 - **Conversations (4)** — log, history, search, summary. FTS5 across channels.
 - **Goals (3)** — set, list, archive. Persistent objectives that drive daily task generation.
@@ -135,7 +135,7 @@ If you just want persistent memory and tasks for Claude Code:
 npm install && npm run build
 ```
 
-Run `claude` from this directory. The `.mcp.json` auto-registers all 56 tools.
+Run `claude` from this directory. The `.mcp.json` auto-registers all 58 tools.
 
 ### Chrome Extension (Browser Bridge)
 
@@ -176,7 +176,7 @@ pm2 start ecosystem.config.cjs
 ## Architecture
 
 ```
-Claude Code CLI ──> justclaw MCP Server (stdio, 56 tools)
+Claude Code CLI ──> justclaw MCP Server (stdio, 58 tools)
                            │
                 SQLite (WAL, FTS5, schema v14)
                     │          │              │
