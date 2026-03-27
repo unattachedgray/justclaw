@@ -23,7 +23,7 @@ import { formatLocalTime } from '../time-utils.js';
 import { resolveTaskDescription } from '../task-templates.js';
 
 const log = getLogger('scheduled-tasks');
-const TASK_TIMEOUT_MS = 5 * 60_000; // 5 min max per scheduled task
+const TASK_TIMEOUT_MS = 8 * 60_000; // 8 min max — full reports (research + write + git + email) need 3-5 min
 const MAX_STALENESS_MS = 2 * 60 * 60_000; // 2 hours — skip tasks older than this
 
 /** Track active scheduled task to prevent overlap. */
@@ -130,6 +130,10 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<TaskRunResult> {
       'Bash(date:*)',
       'Bash(echo:*)',
       'Bash(node:*)',
+      'Bash(git:*)',
+      'Bash(ls:*)',
+      'Bash(cat:*)',
+      'Bash(mkdir:*)',
       'Read', 'Write', 'Edit',
       'Glob', 'Grep',
       'WebSearch', 'WebFetch',
@@ -407,5 +411,18 @@ export async function checkAndRunScheduledTasks(
     );
   } finally {
     runningTaskId = null;
+
+    // Immediately check for more due tasks instead of waiting for next heartbeat tick.
+    // This handles multiple tasks sharing the same due_at (e.g., two daily reports at 8:50am).
+    const moreDue = getDueTasks(db);
+    if (moreDue.length > 0) {
+      log.info('More due tasks found after completion, running next immediately', { nextId: moreDue[0].id });
+      // Use setImmediate to avoid deep recursion — lets the event loop breathe.
+      setImmediate(() => {
+        checkAndRunScheduledTasks(db, client, fallbackChannelId).catch((err) => {
+          log.error('Chained scheduled task check failed', { error: String(err) });
+        });
+      });
+    }
   }
 }
