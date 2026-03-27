@@ -17,6 +17,7 @@ import { auditProcesses, getSuspiciousProcesses, getSuggestions, registerProcess
 import { spawnDashboard, readPidFile } from './processes.js';
 import { getLogger } from './logger.js';
 import { loadTimezoneState, handleTimezoneStateSet } from './time-utils.js';
+import { markIntentionalRestart } from './discord/heartbeat-checks.js';
 
 const log = getLogger('server');
 
@@ -68,6 +69,7 @@ export function createServer(opts: {
     'Restart the justclaw MCP server to pick up code changes.',
     {},
     async () => {
+      markIntentionalRestart(_db!, 'justclaw-discord');
       process.exit(0);
       return { content: [{ type: 'text', text: 'Restarting...' }] };
     },
@@ -78,6 +80,7 @@ export function createServer(opts: {
     'Restart the justclaw dashboard.',
     {},
     async () => {
+      markIntentionalRestart(_db!, 'justclaw-dashboard');
       const dashPid = readPidFile('dashboard');
       const killed: number[] = [];
       if (dashPid !== null) {

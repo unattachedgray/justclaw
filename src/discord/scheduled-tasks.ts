@@ -134,6 +134,7 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<TaskRunResult> {
       'Bash(ls:*)',
       'Bash(cat:*)',
       'Bash(mkdir:*)',
+      'Bash(bash:*)',
       'Read', 'Write', 'Edit',
       'Glob', 'Grep',
       'WebSearch', 'WebFetch',

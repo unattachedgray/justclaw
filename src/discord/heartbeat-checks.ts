@@ -125,11 +125,32 @@ export function checkStaleClaudeProcesses(maxAgeSeconds = 600): CheckResult {
   }
 }
 
+/**
+ * Mark a PM2 restart as intentional. Call before `pm2 restart`.
+ * The heartbeat check will ignore restart alerts for 2 minutes after this.
+ */
+export function markIntentionalRestart(db: DB, processName: string): void {
+  db.execute(
+    "INSERT INTO state (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+    [`intentional_restart_${processName}`, new Date().toISOString()],
+  );
+}
+
+/** Check if a process was intentionally restarted within the grace period. */
+function wasIntentionalRestart(db: DB, processName: string): boolean {
+  const GRACE_MS = 2 * 60_000; // 2 minutes
+  const row = db.fetchone("SELECT value FROM state WHERE key = ?", [`intentional_restart_${processName}`]);
+  if (!row?.value) return false;
+  const ts = new Date(row.value as string).getTime();
+  return Date.now() - ts < GRACE_MS;
+}
+
 /** Check 3: PM2 health — restart loops and stopped processes.
  * Distinguishes active crash loops from stale restart counters (e.g. dev restarts).
  * A process is only crash-looping if restart_time > threshold AND uptime < 60s.
- * High restart count with stable uptime = stale counter from development. */
-export function checkPm2Health(restartThreshold = 5): CheckResult {
+ * High restart count with stable uptime = stale counter from development.
+ * Intentional restarts (flagged via markIntentionalRestart) are ignored for 2 min. */
+export function checkPm2Health(restartThreshold = 5, db?: DB): CheckResult {
   try {
     const output = execSync('pm2 jlist 2>/dev/null', { encoding: 'utf-8', timeout: 5000 });
     const apps = JSON.parse(output) as Array<{
@@ -141,6 +162,7 @@ export function checkPm2Health(restartThreshold = 5): CheckResult {
     const crashLooping: string[] = [];
     const stopped: string[] = [];
     const staleCounters: string[] = [];
+    const intentional: string[] = [];
     const STABLE_UPTIME_MS = 60_000; // 60s — if up this long, it's not crash-looping
 
     for (const app of apps) {
@@ -149,7 +171,14 @@ export function checkPm2Health(restartThreshold = 5): CheckResult {
       } else if (app.pm2_env.restart_time > restartThreshold) {
         const uptimeMs = Date.now() - (app.pm2_env.pm_uptime || 0);
         if (uptimeMs < STABLE_UPTIME_MS) {
-          crashLooping.push(`${app.name} (${app.pm2_env.restart_time} restarts, uptime ${Math.round(uptimeMs / 1000)}s)`);
+          // Check if this was an intentional restart
+          if (db && wasIntentionalRestart(db, app.name)) {
+            intentional.push(app.name);
+            // Auto-reset counter since it's intentional
+            try { execSync(`pm2 reset ${app.name} 2>/dev/null`, { timeout: 3000 }); } catch { /* ignore */ }
+          } else {
+            crashLooping.push(`${app.name} (${app.pm2_env.restart_time} restarts, uptime ${Math.round(uptimeMs / 1000)}s)`);
+          }
         } else {
           // Stale counter from dev restarts — auto-reset it
           staleCounters.push(app.name);
@@ -165,6 +194,10 @@ export function checkPm2Health(restartThreshold = 5): CheckResult {
     if (crashLooping.length > 0) details.push(`Crash-looping: ${crashLooping.join(', ')}`);
     if (stopped.length > 0) details.push(`Stopped: ${stopped.join(', ')}`);
     if (staleCounters.length > 0) details.push(`Reset stale counters: ${staleCounters.join(', ')}`);
+    // Intentional restarts are silently ignored — no need to report them.
+    if (intentional.length > 0) {
+      log.info('Intentional restart detected, suppressing alert', { processes: intentional });
+    }
 
     const okDetail = staleCounters.length > 0
       ? `${apps.length} processes healthy (reset ${staleCounters.join(', ')} counters)`
@@ -254,7 +287,7 @@ export function runAllChecks(db: DB): HeartbeatReport {
   const checks = [
     checkProcessRegistry(db),
     checkStaleClaudeProcesses(),
-    checkPm2Health(),
+    checkPm2Health(5, db),
     checkUnansweredMessages(db),
     checkSystemStatus(db),
     checkStuckTasks(db),
