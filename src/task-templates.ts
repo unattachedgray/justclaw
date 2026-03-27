@@ -62,7 +62,8 @@ function getBuiltinVars(): Record<string, string> {
   const dd = String(now.getDate()).padStart(2, '0');
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
 
-  return {
+  // Provide both upper and lower case so {{date}} and {{DATE}} both work.
+  const vars: Record<string, string> = {
     DATE: `${yyyy}-${mm}-${dd}`,
     DATE_KR: `${yyyy}년 ${mm}월 ${dd}일`,
     YEAR: yyyy,
@@ -70,6 +71,11 @@ function getBuiltinVars(): Record<string, string> {
     DAY: dd,
     DOW: days[now.getDay()],
   };
+  // Add lowercase aliases for all built-in vars.
+  for (const [k, v] of Object.entries({ ...vars })) {
+    vars[k.toLowerCase()] = v;
+  }
+  return vars;
 }
 
 /** Load a template file by name. Returns null if not found. */
