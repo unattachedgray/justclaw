@@ -58,7 +58,8 @@ pm2 save                           # Persist for reboot
 | `src/discord/escalation.ts` | Goal-driven LLM escalation for persistent issues |
 | `src/discord/anticipation.ts` | Predicts what user needs next: signal gathering + LLM synthesis |
 | `src/discord/discord-utils.ts` | Shared Discord utilities: code-block-aware message splitting |
-| `src/discord/scheduled-tasks.ts` | Executes due recurring tasks via claude -p, per-task channel routing |
+| `src/discord/scheduled-tasks.ts` | Two-phase scheduled task executor: prep (AI) + delivery (deterministic scripts) |
+| `src/discord/task-delivery.ts` | Deterministic delivery phase: pending delivery queue, email/script execution at due_at |
 | `src/discord/session-context.ts` | Session continuity: identity preamble, rotation logic, flush thresholds |
 | `src/claude-spawn.ts` | Shared Claude CLI utilities: findClaudeBin, buildClaudeEnv, buildShellCmd, spawnClaudeP |
 | `src/notebooks.ts` | NotebookLM-style document analysis: ingestion, chunking, FTS5 search, source grounding |
@@ -67,7 +68,7 @@ pm2 save                           # Persist for reboot
 | `src/extractors.ts` | Multi-format document extraction: PDF, DOCX, XLSX, PPTX, HTML, EPUB, images |
 | `src/gemini.ts` | Gemini AI: image gen/edit, PDF analysis, vision, grounded search (5 tools) |
 | `src/time-utils.ts` | Shared timezone utilities: formatLocalTime, dual display, state-driven home/current tz |
-| `src/task-templates.ts` | Task template resolver: `{{variable}}` interpolation, built-in date vars, template listing |
+| `src/task-templates.ts` | Task template resolver: `{{variable}}` interpolation, `---DELIVERY---` phase splitting, built-in date vars |
 | `src/tasks-scheduling.ts` | Extracted scheduling tools: duplicate, create_from_template, update_var |
 | `src/playbook.ts` | Learned remediation patterns: consult, record, confidence scoring, crystallization, decay |
 | `src/discord/quality-scan.ts` | Deterministic quality analysis: error patterns, section detection, scoring |

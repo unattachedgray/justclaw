@@ -15,17 +15,19 @@ import type { Client, TextChannel } from 'discord.js';
 import type { DB } from '../db.js';
 import { getLogger } from '../logger.js';
 import { registerProcess, retireProcess } from '../process-registry.js';
-import { DISCORD_MAX_LENGTH, splitMessage } from './discord-utils.js';
+import { splitMessage } from './discord-utils.js';
 import { buildTaskPreamble } from './session-context.js';
 import { findClaudeBin, buildClaudeEnv, buildShellCmd } from '../claude-spawn.js';
 import { computeNextDue } from '../tasks.js';
 import { formatLocalTime } from '../time-utils.js';
-import { resolveTaskDescription } from '../task-templates.js';
+import { resolveTaskDescription, resolveTaskPhases } from '../task-templates.js';
 import { reflectOnTaskResult } from './reflect.js';
+import { checkPendingDeliveries, registerPendingDelivery, executeInlineDelivery } from './task-delivery.js';
 
 const log = getLogger('scheduled-tasks');
-const TASK_TIMEOUT_MS = 20 * 60_000; // 20 min — research-heavy reports (web search + translate + git + email) need 10-15 min
+const TASK_TIMEOUT_MS = 20 * 60_000; // 20 min default — overridden by lead time if set
 const MAX_STALENESS_MS = 2 * 60 * 60_000; // 2 hours — skip tasks older than this
+const DEFAULT_LEAD_TIME_MS = 0; // No lead time by default — tasks trigger at due_at
 
 /** Track active scheduled task to prevent overlap. */
 let runningTaskId: number | null = null;
@@ -42,31 +44,66 @@ interface DueTask {
   session_id: string | null;
 }
 
-/** Query for recurring tasks that are past due and still pending. */
+/**
+ * Parse lead time from task tags. Tag format: "lead:60" = start 60 minutes before due_at.
+ * When a task has lead time, it starts early and uses (due_at - now) as the timeout
+ * instead of the default TASK_TIMEOUT_MS. This gives heavy tasks a natural deadline.
+ */
+function getLeadTimeMs(tags: string): number {
+  const match = tags.match(/\blead:(\d+)\b/);
+  return match ? parseInt(match[1], 10) * 60_000 : DEFAULT_LEAD_TIME_MS;
+}
+
+/**
+ * Compute the effective timeout for a task. If the task has lead time,
+ * the timeout is (due_at - now) so it runs until its scheduled delivery time.
+ * Otherwise use the default TASK_TIMEOUT_MS.
+ */
+function getEffectiveTimeoutMs(task: DueTask): number {
+  const leadMs = getLeadTimeMs(task.tags);
+  if (leadMs <= 0) return TASK_TIMEOUT_MS;
+
+  const dueTime = new Date(task.due_at.replace(' ', 'T') + 'Z').getTime();
+  const remaining = dueTime - Date.now();
+  // Use remaining time until due, but at least 5 minutes as a floor
+  return Math.max(remaining, 5 * 60_000);
+}
+
+/** Query for recurring tasks that are past due OR within their lead time window. */
 function getDueTasks(db: DB): DueTask[] {
   const now = db.now();
+  // First: tasks that are past due (original behavior)
   const rows = db.fetchall(
     `SELECT id, title, description, priority, tags, recurrence, due_at, target_channel, session_id
      FROM tasks
      WHERE recurrence IS NOT NULL
        AND due_at IS NOT NULL
-       AND replace(due_at, 'T', ' ') <= ?
        AND status = 'pending'
-     ORDER BY priority ASC, due_at ASC
-     LIMIT 1`,
-    [now],
+     ORDER BY priority ASC, due_at ASC`,
+    [],
   );
-  return rows.map((r) => ({
-    id: r.id as number,
-    title: r.title as string,
-    description: (r.description as string) || '',
-    priority: r.priority as number,
-    tags: (r.tags as string) || '',
-    recurrence: r.recurrence as string,
-    due_at: r.due_at as string,
-    target_channel: (r.target_channel as string) || null,
-    session_id: (r.session_id as string) || null,
-  }));
+
+  const nowMs = Date.now();
+  const candidates = rows
+    .map((r) => ({
+      id: r.id as number,
+      title: r.title as string,
+      description: (r.description as string) || '',
+      priority: r.priority as number,
+      tags: (r.tags as string) || '',
+      recurrence: r.recurrence as string,
+      due_at: r.due_at as string,
+      target_channel: (r.target_channel as string) || null,
+      session_id: (r.session_id as string) || null,
+    }))
+    .filter((task) => {
+      const dueMs = new Date(task.due_at.replace(' ', 'T') + 'Z').getTime();
+      const leadMs = getLeadTimeMs(task.tags);
+      // Task is eligible if: now >= (due_at - lead_time)
+      return nowMs >= dueMs - leadMs;
+    });
+
+  return candidates.slice(0, 1);
 }
 
 /** Query for auto-executable tasks (flagged for autonomous execution). */
@@ -97,24 +134,38 @@ interface TaskRunResult {
   sessionId: string | null;
 }
 
-/** Spawn claude -p with a task prompt and collect the result. */
-function runClaudeForTask(db: DB, task: DueTask): Promise<TaskRunResult> {
+/** Spawn claude -p with a task prompt and collect the result. Timeout is dynamic per task. */
+function runClaudeForTask(db: DB, task: DueTask, prepOnly: boolean = false): Promise<TaskRunResult> {
   const claudeBin = findClaudeBin();
 
   // Phase 2: Inject task preamble for context continuity.
   const preamble = buildTaskPreamble(db);
-  const resolvedDescription = resolveTaskDescription(task.description);
+  const phases = resolveTaskPhases(task.description, { TASK_ID: String(task.id) });
+  const taskDescription = prepOnly ? phases.prepPrompt : resolveTaskDescription(task.description);
+
+  const completionInstructions = prepOnly
+    ? [
+        'After completing preparation:',
+        '1. Verify the report file exists at the path specified above',
+        '2. Do NOT send any emails — delivery happens automatically at the scheduled time',
+        '3. Do NOT call mcp__justclaw__task_complete — the system handles completion',
+        '4. Include a brief result summary of what was prepared',
+      ]
+    : [
+        'After completing the task:',
+        '1. Use mcp__justclaw__task_complete to mark this task done (id: ' + task.id + ')',
+        '2. Include a brief result summary',
+      ];
+
   const prompt = [
     preamble,
     '---',
     `You are executing a scheduled task: "${task.title}"`,
     '',
     'Instructions:',
-    resolvedDescription,
+    taskDescription,
     '',
-    'After completing the task:',
-    '1. Use mcp__justclaw__task_complete to mark this task done (id: ' + task.id + ')',
-    '2. Include a brief result summary',
+    ...completionInstructions,
     '',
     'IMPORTANT: Your entire response will be posted to Discord. Format it for Discord (markdown, under 4000 chars total).',
   ].join('\n');
@@ -168,13 +219,16 @@ function runClaudeForTask(db: DB, task: DueTask): Promise<TaskRunResult> {
     let newSessionId: string | null = task.session_id;
     let stderrBuf = '';
 
+    const effectiveTimeout = getEffectiveTimeoutMs(task);
+    log.info('Task timeout set', { taskId: task.id, timeoutMs: effectiveTimeout, hasLeadTime: getLeadTimeMs(task.tags) > 0 });
+
     const timeout = setTimeout(() => {
-      log.warn('Scheduled task timed out', { taskId: task.id, pid: child.pid });
+      log.warn('Scheduled task timed out', { taskId: task.id, pid: child.pid, timeoutMs: effectiveTimeout });
       try { process.kill(-child.pid!, 'SIGTERM'); } catch (e: unknown) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') log.warn('Task SIGTERM failed', { pid: child.pid, error: String(e) }); }
       setTimeout(() => {
         try { process.kill(-child.pid!, 'SIGKILL'); } catch (e: unknown) { if ((e as NodeJS.ErrnoException).code !== 'ESRCH') log.warn('Task SIGKILL failed', { pid: child.pid, error: String(e) }); }
       }, 5000);
-    }, TASK_TIMEOUT_MS);
+    }, effectiveTimeout);
 
     child.stdout!.on('data', (chunk: Buffer) => {
       buffer += chunk.toString();
@@ -267,6 +321,9 @@ export async function checkAndRunScheduledTasks(
   client: Client,
   fallbackChannelId: string,
 ): Promise<void> {
+  // Execute any pending deliveries first — fast, deterministic, no AI.
+  await checkPendingDeliveries(db, client, fallbackChannelId);
+
   // Don't overlap — one scheduled task at a time.
   if (runningTaskId !== null) {
     log.info('Scheduled task already running, skipping', { runningTaskId });
@@ -365,17 +422,28 @@ export async function checkAndRunScheduledTasks(
     [db.now(), task.id],
   );
 
+  // Determine if this is a two-phase (prep-only) run.
+  const phases = resolveTaskPhases(task.description, { TASK_ID: String(task.id) });
+  const leadMs = getLeadTimeMs(task.tags);
+  const isPrepOnly = phases.deliveryCommands !== null && leadMs > 0 && nowMs < dueTime;
+  const reportPath = `/tmp/justclaw-report-${task.id}.md`;
+
   try {
     const textChannel = await resolveChannel(client, task, fallbackChannelId);
     if (!textChannel) {
       log.error('Cannot send to any channel for task', { taskId: task.id, targetChannel: task.target_channel, fallback: fallbackChannelId });
       return;
     }
-    await textChannel.send(`📅 **Scheduled task starting:** ${task.title}`);
+
+    if (isPrepOnly) {
+      await textChannel.send(`📅 **Preparing scheduled task:** ${task.title}\n📧 Email delivery at ${formatLocalTime(task.due_at)}`);
+    } else {
+      await textChannel.send(`📅 **Scheduled task starting:** ${task.title}`);
+    }
     const taskStartMs = Date.now();
 
-    // Run claude -p.
-    const result = await runClaudeForTask(db, task);
+    // Run claude -p (prep-only if two-phase, full otherwise).
+    const result = await runClaudeForTask(db, task, isPrepOnly);
 
     // Post result to Discord.
     const chunks = splitMessage(result.text);
@@ -383,7 +451,7 @@ export async function checkAndRunScheduledTasks(
       await textChannel.send(chunk);
     }
 
-    // Phase 6: Persist session_id for recurring task continuity.
+    // Persist session_id for recurring task continuity.
     if (result.sessionId) {
       db.execute('UPDATE tasks SET session_id = ? WHERE recurrence_source_id = ? OR id = ?',
         [result.sessionId, task.id, task.id]);
@@ -395,17 +463,41 @@ export async function checkAndRunScheduledTasks(
       ['discord', 'charlie', `[scheduled] ${task.title}: ${result.text.slice(0, 500)}`, db.now()],
     );
 
-    // Post-task reflection: quality scan, learning extraction, playbook update.
-    try {
-      const reflection = reflectOnTaskResult(
-        db, { id: task.id, title: task.title, description: task.description, tags: task.tags },
-        result.text, Date.now() - taskStartMs, 0,
-      );
-      if (reflection.discordSummary) {
-        await textChannel.send(reflection.discordSummary);
+    if (isPrepOnly && phases.deliveryCommands) {
+      // Two-phase: register pending delivery for execution at due_at
+      registerPendingDelivery(db, {
+        taskId: task.id,
+        dueAt: task.due_at,
+        deliveryCommands: phases.deliveryCommands,
+        reportPath,
+        targetChannel: task.target_channel,
+        title: task.title,
+        prepResult: result.text.slice(0, 500),
+        tags: task.tags,
+        recurrence: task.recurrence,
+        description: task.description,
+      });
+      if (textChannel) {
+        await textChannel.send(`✅ **Preparation complete.** Email delivery scheduled for ${formatLocalTime(task.due_at)}.`);
       }
-    } catch (reflErr) {
-      log.warn('Post-task reflection failed', { taskId: task.id, error: String(reflErr) });
+    } else {
+      // Monolithic or no-lead-time with delivery commands: run delivery inline
+      if (phases.deliveryCommands && phases.deliveryCommands.length > 0) {
+        await executeInlineDelivery(db, task.id, phases.deliveryCommands, textChannel);
+      }
+
+      // Post-task reflection: quality scan, learning extraction, playbook update.
+      try {
+        const reflection = reflectOnTaskResult(
+          db, { id: task.id, title: task.title, description: task.description, tags: task.tags },
+          result.text, Date.now() - taskStartMs, 0,
+        );
+        if (reflection.discordSummary) {
+          await textChannel.send(reflection.discordSummary);
+        }
+      } catch (reflErr) {
+        log.warn('Post-task reflection failed', { taskId: task.id, error: String(reflErr) });
+      }
     }
   } catch (err) {
     log.error('Scheduled task execution failed', { taskId: task.id, error: String(err) });

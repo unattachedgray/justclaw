@@ -134,6 +134,59 @@ export function resolveTaskDescription(description: string): string {
   return resolved;
 }
 
+/** Delivery separator in templates — everything below this is deterministic shell commands. */
+const DELIVERY_SEPARATOR = '---DELIVERY---';
+
+export interface TaskPhases {
+  prepPrompt: string;
+  deliveryCommands: string[] | null;
+}
+
+/**
+ * Resolve a task description into prep (AI) and delivery (deterministic) phases.
+ * Templates with a ---DELIVERY--- marker split into two phases.
+ * Without the marker, deliveryCommands is null (legacy monolithic behavior).
+ */
+export function resolveTaskPhases(
+  description: string,
+  extraVars?: Record<string, string>,
+): TaskPhases {
+  const ref = parseTemplateRef(description);
+  if (!ref) return { prepPrompt: description, deliveryCommands: null };
+
+  const template = loadTemplate(ref.templateName);
+  if (!template) {
+    log.error('Template not found, using raw description', { template: ref.templateName });
+    return { prepPrompt: description, deliveryCommands: null };
+  }
+
+  const builtins = getBuiltinVars();
+  const resolvedVars: Record<string, string> = {};
+  for (const [k, v] of Object.entries(ref.vars)) {
+    resolvedVars[k] = interpolate(v, builtins);
+  }
+  const allVars = { ...builtins, ...resolvedVars, ...(extraVars || {}) };
+
+  if (!template.includes(DELIVERY_SEPARATOR)) {
+    return { prepPrompt: interpolate(template, allVars), deliveryCommands: null };
+  }
+
+  const [prepPart, deliveryPart] = template.split(DELIVERY_SEPARATOR, 2);
+  const prepPrompt = interpolate(prepPart.trim(), allVars);
+  const deliveryCommands = deliveryPart
+    .trim()
+    .split('\n')
+    .map((line) => interpolate(line.trim(), allVars))
+    .filter((line) => line.length > 0);
+
+  log.info('Resolved task template with delivery phase', {
+    template: ref.templateName,
+    deliveryCommandCount: deliveryCommands.length,
+  });
+
+  return { prepPrompt, deliveryCommands };
+}
+
 /**
  * List available templates with their variable names.
  */
