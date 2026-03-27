@@ -1,6 +1,6 @@
 # justclaw — Persistence & automation layer for Claude Code CLI
 
-SQLite-backed MCP server (49 tools) + Chrome browser bridge (70 commands) + Discord bot + deterministic heartbeat + self-healing process management. TypeScript, Node.js 20+, Linux.
+SQLite-backed MCP server (52 tools) + Chrome browser bridge (70 commands) + Discord bot + deterministic heartbeat + self-healing process management. TypeScript, Node.js 20+, Linux.
 
 **Philosophy**: Deterministic code first, LLM only when reasoning is genuinely needed. Claude Code CLI is the brain; justclaw is the long-term memory, task queue, and lifecycle harness.
 
@@ -18,13 +18,13 @@ SQLite-backed MCP server (49 tools) + Chrome browser bridge (70 commands) + Disc
 | **Node.js** | v22+ |
 | **Discord channel** | Private server, single-user (Julian) |
 | **PM2 services** | `justclaw-dashboard` (Hono :8787), `justclaw-discord` (bot + heartbeat) |
-| **Database** | `data/charlie.db` (SQLite, WAL, FTS5, schema v12) |
+| **Database** | `data/charlie.db` (SQLite, WAL, FTS5, schema v14) |
 | **Debug mode** | Set `JUSTCLAW_DEBUG=1` in `.env` to suppress LLM escalation |
 
 ## Architecture
 
 ```
-Claude Code CLI → justclaw MCP Server (stdio, 49 tools)
+Claude Code CLI → justclaw MCP Server (stdio, 52 tools)
                          ↓
               SQLite (data/charlie.db, WAL, FTS5, schema v14)
                     ↓         ↓              ↓              ↓
@@ -65,22 +65,15 @@ pm2 save                           # Persist for reboot
 | `src/monitors.ts` | Metric monitoring engine: URL/command sources, extractors, condition evaluation |
 | `src/monitor-tools.ts` | Monitor MCP tools: create, list, check, history, update, delete |
 | `src/extractors.ts` | Multi-format document extraction: PDF, DOCX, XLSX, PPTX, HTML, EPUB, images |
+| `src/image-gen.ts` | Gemini AI image generation: text-to-image via gemini-3.1-flash-image-preview |
 | `scripts/prediction-tracker.ts` | Deterministic investment prediction tracker (CLI, JSON-backed) |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
 | `browser-extension/` | Chrome extension: browser bridge with 70 automation commands |
 | `.mcp.json` | MCP server config — **must include `JUSTCLAW_NO_DASHBOARD: "1"`** |
 
-## Browser Bridge (Chrome Extension)
+## MCP Tools (52)
 
-70-command browser automation via Chrome extension. Read pages, screenshot, fill forms, extract structured data, click elements, capture network traffic, emulate devices, and more. Commands queued via dashboard API, extension polls and executes.
-
-Key capabilities: tab management, screenshots, click/fill/submit, cookies, console/network/WebSocket capture, React DevTools, schema-driven extraction, Set-of-Mark annotation, natural language element search, self-healing selectors, iframe/shadow DOM access, HAR export, device emulation, print to PDF.
-
-Full reference, usage examples, and all 70 commands: @docs/BROWSER-BRIDGE.md
-
-## MCP Tools (49)
-
-Memory (6): save, search, recall, forget, list, consolidate — FTS5, namespaces, access tracking
+Memory (6): save, search, recall, forget, list, consolidate — FTS5, namespaces, autodream-style dedup
 Tasks (6): create, update, list, next, claim, complete — dependencies, agent claiming, auto-execute
 Context (5): flush, restore, today, daily_log_add/get — compaction lifecycle
 Conversations (4): log, history, search, summary — FTS5 across channels
@@ -89,25 +82,13 @@ Learnings (3): add, search, stats — structured self-improvement from errors an
 Notebooks (6): create, query, sources, list, overview, delete — NotebookLM-style document analysis
 Monitors (6): create, list, check, history, update, delete — metric watching with alerts
 Anticipation (1): anticipate_next — predict what user needs next from signals
+Image (1): image_generate — Gemini AI image generation from text prompts
+Alerts (2): alert_silence, alert_whitelist — suppress recurring heartbeat alerts
 State/Status (3): get, set, status overview
 Process (4): check, restart_self, restart_dashboard, ghost_status
 System (2): recommendations, escalation_history
 
 Full reference: @docs/MCP-TOOLS.md
-
-## Available Tools (Discord Bot & Escalation Agent)
-
-When responding via Discord, use tools proactively — don't tell the user to run commands, run them yourself.
-
-- **justclaw MCP** (`mcp__justclaw__*`): all 49 tools — memory, tasks, context, conversations, goals, learnings, notebooks, monitors, anticipation, state, process, system
-- **Notebooks**: `notebook_create(name, path)` → ingest 60+ file types, `notebook_query` → source-grounded answers. Use when user shares docs for analysis.
-- **Monitors**: `monitor_create` → track prices, uptime, web changes. Sources: `url` or `command`. Extractors: `jsonpath`, `regex`, `status_code`, `response_time`, `body_hash`, `stdout`. Conditions: `threshold_above/below`, `change_percent`, `change_any`, `contains`, `not_contains`, `regex_match`. Run in heartbeat (5 min).
-- **Browser**: 70 commands via extension. Queue via `curl -X POST http://localhost:8787/api/extension-commands`. See @docs/BROWSER-BRIDGE.md
-- **File ops**: `Read`, `Write`, `Edit`, `Glob`, `Grep`
-- **Web**: `WebSearch`, `WebFetch`
-- **Bash**: `git`, `npm`, `node`, `pm2`, `curl`, `python3`, `jq`, etc.
-
-**After completing work**: `memory_save` key decisions, `task_complete` if applicable, `conversation_log` the exchange.
 
 ## System Safety — Protecting the Ubuntu Host
 
@@ -157,50 +138,6 @@ This is a shared personal machine (Lenovo ThinkCentre M725s, 6.7GB RAM, HDD). Br
 
 Errors are values. Add context at each layer. Fail fast at boundaries. Log structured: `log.error('msg', { key: val })`. Recover deterministically; escalate if unknown.
 
-## Process Management
-
-Conservative kill policy: 3 safety layers (identity + role + grace period). Never kill interactive claude sessions. Suspicious processes tracked with 0-100 safety scores. Malfunction escalation auto-kills safe suspects during crash loops.
-
-Full details: @docs/PROCESS-MANAGEMENT.md
-
-## Discord Bot
-
-Streaming progress display, per-channel queue, circuit breaker (3 failures → cooldown), multi-turn sessions via --resume, graceful shutdown kills process groups.
-
-Full details: @docs/DISCORD-BOT.md
-
-## Session Continuity ("Always-On Agent")
-
-Six-layer system that makes every session feel like the same agent waking up. Works WITH Claude Code's native context compaction, not against it.
-
-| Layer | What it does | File |
-|-------|-------------|------|
-| **Session persistence** | Session IDs stored in `sessions` table, survive bot restarts. `--resume` works across sessions. | `src/discord/bot.ts`, `src/db.ts` (schema v12) |
-| **Identity preamble** | Every `claude -p` prompt is prepended with: last context snapshot, active goals, pending tasks, today's activity, recent learnings, time since last interaction. | `src/discord/session-context.ts` → `buildIdentityPreamble()` |
-| **Message coalescing** | Multiple queued messages batched into one prompt after 1s window. Reduces unnecessary turns. | `src/discord/bot.ts` → `coalesceMessages()`, `COALESCE_WINDOW_MS` |
-| **Pre-compaction flush** | At 20+ turns, auto-sends a reminder to call `context_flush`. Safety net alongside Claude Code's native compaction. | `src/discord/session-context.ts` → `shouldFlushContext()`, `SESSION_TURN_FLUSH_THRESHOLD` |
-| **Session rotation** | At 30+ turns or on a new day, sends handover prompt to flush context, then starts fresh session with full identity preamble. | `src/discord/session-context.ts` → `shouldRotateSession()`, `SESSION_TURN_ROTATE_THRESHOLD` |
-| **Scheduled task sessions** | Recurring tasks can use `--resume` via `session_id` column on tasks table. Session inherited across recurrence chain. | `src/discord/scheduled-tasks.ts`, tasks table |
-
-**Design rationale**: Claude Code already handles context compaction well. Our layers add *durable persistence* (to SQLite) and *identity injection* so that even across compaction, restart, or rotation, the agent knows who it is and what it was doing. The flush is a safety net, not a replacement.
-
-## Heartbeat (deterministic, $0)
-
-9 checks every 5min: process audit, stale claude scan, pm2 health, unanswered messages, system status, stuck tasks, doc staleness, event loop, memory usage. Persistent ALERTs escalate to Claude after 3 cycles. Healing verified at 2min.
-
-**Scheduled task executor:** After health checks, the heartbeat queries for recurring tasks past their `due_at`. Due tasks are executed via `claude -p` (`src/discord/scheduled-tasks.ts`), results posted to the task's `target_channel` (falls back to heartbeat channel if not set), and `task_complete` called (which auto-spawns the next recurrence, inheriting `target_channel`). One task at a time to avoid overload. Create recurring tasks with `task_create(recurrence: 'daily', due_at: '...', target_channel: '<discord-channel-id>')`.
-
-## Self-Healing
-
-| Layer | Action |
-|-------|--------|
-| PM2 | Auto-restart on crash (max 10), memory limit (300MB), wait_ready |
-| Heartbeat | Deterministic checks, orphan cleanup, suspicious tracking |
-| Escalation | Claude diagnoses persistent issues, recommends system improvements |
-| DB | Integrity check on startup, WAL checkpoint hourly, backup every 6h |
-| Discord | Error/shard handlers, readiness gate, circuit breaker |
-| Shutdown | Process group kills, 5s grace, SIGKILL fallback |
-
 ## Env Vars
 
 | Var | Purpose |
@@ -215,12 +152,6 @@ Six-layer system that makes every session feel like the same agent waking up. Wo
 | `SMTP_PASS` | SMTP password or app password |
 | `SMTP_FROM` | From address for outgoing emails (defaults to SMTP_USER) |
 | `DASHBOARD_PASSWORD` | Dashboard login password (default `88888888`) |
-
-## Dashboard
-
-Web control plane at `http://localhost:8787` (password: `DASHBOARD_PASSWORD`, default `88888888`). Sessions survive restarts. Tab bar shows token sparkline, agent throughput, Claude Code stats. Overview: work queue, heatmap (EDT), monitor status grid, agent intelligence (learnings/goals/memory), sessions. 7 default monitors: dashboard uptime, disk, RAM, Discord bot, GitHub, Bitcoin, Anthropic status.
-
-Full reference (API endpoints, monitors, auth): @docs/DASHBOARD.md
 
 ## Skills
 
