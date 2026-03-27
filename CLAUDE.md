@@ -68,16 +68,21 @@ pm2 save                           # Persist for reboot
 | `src/gemini.ts` | Gemini AI: image gen/edit, PDF analysis, vision, grounded search (5 tools) |
 | `src/time-utils.ts` | Shared timezone utilities: formatLocalTime, dual display, state-driven home/current tz |
 | `src/task-templates.ts` | Task template resolver: `{{variable}}` interpolation, built-in date vars, template listing |
+| `src/tasks-scheduling.ts` | Extracted scheduling tools: duplicate, create_from_template, update_var |
+| `src/playbook.ts` | Learned remediation patterns: consult, record, confidence scoring, crystallization, decay |
+| `src/discord/quality-scan.ts` | Deterministic quality analysis: error patterns, section detection, scoring |
+| `src/discord/reflect.ts` | Post-task/escalation reflection: learning extraction, playbook updates, anticipation validation |
 | `data/task-templates/` | Template files for recurring tasks (e.g., `daily-report.md`) |
 | `scripts/prediction-tracker.ts` | Deterministic investment prediction tracker (CLI, JSON-backed) |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
 | `browser-extension/` | Chrome extension: browser bridge with 70 automation commands |
 | `.mcp.json` | MCP server config — **must include `JUSTCLAW_NO_DASHBOARD: "1"`** |
 
-## MCP Tools (55)
+## MCP Tools (57)
 
 Memory (6): save, search, recall, forget, list, consolidate — FTS5, namespaces, autodream-style dedup
-Tasks (9): create, update, **update_var**, list, next, claim, complete, **duplicate**, **create_from_template** — dependencies, agent claiming, templates, output channel registry, auto-execute
+Tasks (9): create, update, update_var, list, next, claim, complete, duplicate, create_from_template — dependencies, agent claiming, templates, output channel registry, auto-execute
+Playbook (2): **consult**, **stats** — learned remediation patterns with Bayesian confidence scoring
 Context (5): flush, restore, today, daily_log_add/get — compaction lifecycle
 Conversations (4): log, history, search, summary — FTS5 across channels
 Goals (3): set, list, archive — persistent objectives that drive daily task generation

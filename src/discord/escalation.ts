@@ -20,6 +20,7 @@
 import type { DB } from '../db.js';
 import { getLogger } from '../logger.js';
 import { spawnClaudeP } from '../claude-spawn.js';
+import { reflectOnEscalation } from './reflect.js';
 
 const log = getLogger('escalation');
 
@@ -200,6 +201,11 @@ export async function escalate(
         [memoryKey, memoryContent, `escalation,${goal}`],
       );
     } catch (e: unknown) { log.debug('Escalation memory save failed', { memoryKey, error: String(e) }); }
+
+    // Post-escalation reflection: auto-extract learning + update playbook.
+    try {
+      reflectOnEscalation(db, goal, result.diagnosis, result.actionTaken || null, result.recommendation || null, result.resolved);
+    } catch (e: unknown) { log.debug('Escalation reflection failed', { goal, error: String(e) }); }
 
     if (result.resolved) {
       state.consecutiveFailures = 0;

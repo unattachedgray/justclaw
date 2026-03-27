@@ -19,6 +19,8 @@ import { checkDueMonitors, formatMonitorAlert } from '../monitors.js';
 import { runAwarenessChecks, isWithinActiveHours, getMessageBudget, spendMessageBudget, formatAwarenessMessage } from './awareness.js';
 import { anticipate, formatAnticipation } from './anticipation.js';
 import { loadConfig } from '../config.js';
+import { crystallizeFromLearnings, decayStaleEntries } from '../playbook.js';
+import { validateAnticipations } from './reflect.js';
 import { formatLocalTimeNow24h } from '../time-utils.js';
 
 const log = getLogger('heartbeat');
@@ -290,6 +292,14 @@ export function startHeartbeat(opts: HeartbeatOpts): { stop: () => void; runNow:
         }
       } catch (err) { log.warn('Monitor check failed', { error: String(err) }); }
 
+      // Playbook maintenance: every 72 cycles (~6h), crystallize learnings + decay stale entries.
+      if (state.totalChecks % 72 === 0 && state.totalChecks > 0) {
+        try {
+          crystallizeFromLearnings(opts.db);
+          decayStaleEntries(opts.db);
+        } catch (err) { log.warn('Playbook maintenance failed', { error: String(err) }); }
+      }
+
       // Memory consolidation: every 72 cycles (~6h), clean up expired memories.
       if (state.totalChecks % 72 === 0 && state.totalChecks > 0) {
         try {
@@ -365,6 +375,11 @@ export function startHeartbeat(opts: HeartbeatOpts): { stop: () => void; runNow:
         } catch (err) {
           log.error('Anticipation check failed', { error: String(err) });
         }
+
+        // Validate previous predictions (deterministic, piggybacks on 12-cycle timer).
+        try {
+          validateAnticipations(opts.db);
+        } catch (err) { log.debug('Anticipation validation failed', { error: String(err) }); }
       }
 
       state.consecutiveErrors = 0;

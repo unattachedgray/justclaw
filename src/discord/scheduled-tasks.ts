@@ -21,9 +21,10 @@ import { findClaudeBin, buildClaudeEnv, buildShellCmd } from '../claude-spawn.js
 import { computeNextDue } from '../tasks.js';
 import { formatLocalTime } from '../time-utils.js';
 import { resolveTaskDescription } from '../task-templates.js';
+import { reflectOnTaskResult } from './reflect.js';
 
 const log = getLogger('scheduled-tasks');
-const TASK_TIMEOUT_MS = 8 * 60_000; // 8 min max — full reports (research + write + git + email) need 3-5 min
+const TASK_TIMEOUT_MS = 20 * 60_000; // 20 min — research-heavy reports (web search + translate + git + email) need 10-15 min
 const MAX_STALENESS_MS = 2 * 60 * 60_000; // 2 hours — skip tasks older than this
 
 /** Track active scheduled task to prevent overlap. */
@@ -371,6 +372,7 @@ export async function checkAndRunScheduledTasks(
       return;
     }
     await textChannel.send(`📅 **Scheduled task starting:** ${task.title}`);
+    const taskStartMs = Date.now();
 
     // Run claude -p.
     const result = await runClaudeForTask(db, task);
@@ -392,6 +394,19 @@ export async function checkAndRunScheduledTasks(
       'INSERT INTO conversations (channel, sender, message, is_from_charlie, created_at) VALUES (?, ?, ?, 1, ?)',
       ['discord', 'charlie', `[scheduled] ${task.title}: ${result.text.slice(0, 500)}`, db.now()],
     );
+
+    // Post-task reflection: quality scan, learning extraction, playbook update.
+    try {
+      const reflection = reflectOnTaskResult(
+        db, { id: task.id, title: task.title, description: task.description, tags: task.tags },
+        result.text, Date.now() - taskStartMs, 0,
+      );
+      if (reflection.discordSummary) {
+        await textChannel.send(reflection.discordSummary);
+      }
+    } catch (reflErr) {
+      log.warn('Post-task reflection failed', { taskId: task.id, error: String(reflErr) });
+    }
   } catch (err) {
     log.error('Scheduled task execution failed', { taskId: task.id, error: String(err) });
 

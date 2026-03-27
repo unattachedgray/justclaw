@@ -12,6 +12,27 @@ import type { DB } from './db.js';
 
 const VALID_CATEGORIES = ['error', 'correction', 'discovery', 'skill'] as const;
 
+/** Programmatic learning creation — called by reflect module, not MCP. */
+export function addLearningProgrammatic(
+  db: DB,
+  category: 'error' | 'correction' | 'discovery' | 'skill',
+  trigger: string,
+  lesson: string,
+  area?: string,
+  source?: string,
+): void {
+  db.execute(
+    `INSERT INTO learnings (category, trigger, lesson, area, applied_count, created_at)
+     VALUES (?, ?, ?, ?, 0, datetime('now'))`,
+    [category, trigger.slice(0, 500), lesson.slice(0, 500), area || null],
+  );
+}
+
+/** Increment applied_count for a learning (tracks when it's actually used). */
+export function incrementAppliedCount(db: DB, learningId: number): void {
+  db.execute('UPDATE learnings SET applied_count = applied_count + 1 WHERE id = ?', [learningId]);
+}
+
 export function registerLearningTools(server: McpServer, db: DB): void {
   server.tool(
     'learning_add',

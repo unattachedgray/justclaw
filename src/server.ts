@@ -4,6 +4,8 @@ import { DB } from './db.js';
 import { loadConfig, resolveDbPath, type CharlieConfig } from './config.js';
 import { registerMemoryTools } from './memory.js';
 import { registerTaskTools } from './tasks.js';
+import { registerSchedulingTools } from './tasks-scheduling.js';
+import { registerPlaybookTools } from './playbook.js';
 import { registerContextTools } from './context.js';
 import { registerConversationTools } from './conversations.js';
 import { registerGoalTools } from './goals.js';
@@ -46,12 +48,14 @@ export function createServer(opts: {
   // Register all tool modules.
   registerMemoryTools(server, _db);
   registerTaskTools(server, _db);
+  registerSchedulingTools(server, _db);
   registerContextTools(server, _db);
   registerConversationTools(server, _db);
   registerGoalTools(server, _db);
   registerLearningTools(server, _db);
   registerNotebookTools(server, _db);
   registerMonitorTools(server, _db);
+  registerPlaybookTools(server, _db);
   registerGeminiTools(server);
   // Process management tools — delegate to process-registry.ts (SQLite-backed).
   server.tool(
