@@ -23,6 +23,8 @@ import { execSync } from 'child_process';
 import type { DB } from './db.js';
 import { getLogger } from './logger.js';
 import { isPidAlive } from './processes.js';
+import { trackSuspicious, detectMalfunction, clearSuspicious } from './suspicious-tracker.js';
+import type { SuspiciousProcess } from './suspicious-tracker.js';
 
 // Re-export everything from suspicious-tracker so existing imports still work.
 export {
@@ -200,10 +202,8 @@ export function getSuspiciousKey(pid: number): string {
 // Scan for unknown justclaw processes not in our registry
 // ---------------------------------------------------------------------------
 
-function scanForUnknownProcesses(db: DB): import('./suspicious-tracker.js').SuspiciousProcess[] {
-  // Lazy import to avoid circular dependency at module load time
-  const { trackSuspicious } = require('./suspicious-tracker.js') as typeof import('./suspicious-tracker.js');
-  const suspicious: import('./suspicious-tracker.js').SuspiciousProcess[] = [];
+function scanForUnknownProcesses(db: DB): SuspiciousProcess[] {
+  const suspicious: SuspiciousProcess[] = [];
 
   // Include pm2 PIDs to prevent flagging pm2-managed processes as suspicious.
   const knownPids = new Set<number>();
@@ -339,11 +339,9 @@ function handleRetiredProcesses(
 /** During malfunction, kill suspicious processes with high safety scores. */
 function escalateIfMalfunctioning(
   db: DB,
-  suspicious: import('./suspicious-tracker.js').SuspiciousProcess[],
+  suspicious: SuspiciousProcess[],
   killed: number[],
 ): void {
-  // Lazy import to avoid circular dependency at module load time
-  const { detectMalfunction, clearSuspicious } = require('./suspicious-tracker.js') as typeof import('./suspicious-tracker.js');
 
   const malfunction = detectMalfunction(db);
   if (!malfunction.detected || process.env.JUSTCLAW_DEBUG === '1') return;

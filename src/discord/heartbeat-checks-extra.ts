@@ -5,6 +5,8 @@
  * Each check returns structured CheckResult data. Zero LLM cost.
  */
 
+import { readFileSync, existsSync } from 'fs';
+import { join } from 'path';
 import { execSync } from 'child_process';
 import type { DB } from '../db.js';
 import { isWhitelisted, ensureBuiltinWhitelist, trackRecurringFlag, formatRecurringPrompt } from '../alert-manager.js';
@@ -44,8 +46,7 @@ export function checkStuckTasks(db: DB, staleHours = 24): CheckResult {
 /** Check 7: CLAUDE.md staleness — verify referenced files still exist. */
 export function checkDocStaleness(db: DB): CheckResult {
   try {
-    const { readFileSync, existsSync } = require('fs');
-    const { join } = require('path');
+    // fs and path are imported at top of file
     const root = process.env.JUSTCLAW_ROOT || process.cwd();
     const claudeMd = readFileSync(join(root, 'CLAUDE.md'), 'utf-8');
 

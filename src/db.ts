@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { mkdirSync } from 'fs';
+import { mkdirSync, renameSync } from 'fs';
 import { dirname } from 'path';
 import { SCHEMA_SQL, SCHEMA_VERSION, MIGRATIONS } from './db-schema.js';
 
@@ -31,7 +31,7 @@ export class DB {
         console.error(`DB integrity check FAILED: ${msg}. Renaming corrupt DB and starting fresh.`);
         this.conn.close();
         const backupPath = this.dbPath + '.corrupt.' + Date.now();
-        require('fs').renameSync(this.dbPath, backupPath);
+        renameSync(this.dbPath, backupPath);
         this.conn = new Database(this.dbPath);
         this.conn.pragma('journal_mode = WAL');
         this.conn.pragma('foreign_keys = ON');
