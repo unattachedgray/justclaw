@@ -108,7 +108,15 @@ export function resolveTaskDescription(description: string): string {
     return description;
   }
 
-  const allVars = { ...getBuiltinVars(), ...ref.vars };
+  const builtins = getBuiltinVars();
+  // First pass: resolve builtins inside user-provided variable values
+  // (e.g., email_subject might contain {{DATE_KR}}).
+  const resolvedVars: Record<string, string> = {};
+  for (const [k, v] of Object.entries(ref.vars)) {
+    resolvedVars[k] = interpolate(v, builtins);
+  }
+  const allVars = { ...builtins, ...resolvedVars };
+  // Second pass: resolve all variables in the template.
   const resolved = interpolate(template, allVars);
 
   log.info('Resolved task template', {
