@@ -15,6 +15,7 @@
 import type { DB } from '../db.js';
 import { getLogger } from '../logger.js';
 import { spawnClaudeP } from '../claude-spawn.js';
+import { formatLocalTime } from '../time-utils.js';
 
 const log = getLogger('anticipation');
 
@@ -79,7 +80,7 @@ function gatherPendingWork(db: DB): AnticipationSignal | null {
   if (pending.length === 0) return null;
 
   const data = pending.map((r) =>
-    `- P${r.priority}: "${r.title}"${r.due_at ? ` (due ${r.due_at})` : ''}${r.tags ? ` [${r.tags}]` : ''}`
+    `- P${r.priority}: "${r.title}"${r.due_at ? ` (due ${formatLocalTime(r.due_at as string, { includeDate: true })})` : ''}${r.tags ? ` [${r.tags}]` : ''}`
   ).join('\n');
 
   return {

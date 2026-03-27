@@ -26,7 +26,7 @@ const DEFAULTS: CharlieConfig = {
   default_channel: 'discord',
   respond_to_all: true,
   personality: '',
-  timezone: 'UTC',
+  timezone: 'America/New_York',
   memory_max_entries: 1000,
   auto_flush_on_exit: true,
   task_default_priority: 5,

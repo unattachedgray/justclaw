@@ -16,6 +16,7 @@ import { addToWhitelist, removeFromWhitelist, getWhitelist, silenceAlert, unsile
 import { auditProcesses, getSuspiciousProcesses, getSuggestions, registerProcess, retireProcess } from './process-registry.js';
 import { spawnDashboard, readPidFile } from './processes.js';
 import { getLogger } from './logger.js';
+import { loadTimezoneState, handleTimezoneStateSet } from './time-utils.js';
 
 const log = getLogger('server');
 
@@ -29,6 +30,9 @@ export function createServer(opts: {
   _config = loadConfig(opts.configPath);
   const dbPath = resolveDbPath(_config, opts.projectRoot);
   _db = new DB(dbPath);
+
+  // Restore timezone settings from persistent state (survives restarts).
+  loadTimezoneState(_db);
 
   // Register this MCP server process so the heartbeat doesn't flag it as suspicious.
   registerProcess(_db, process.pid, 'mcp-server');
@@ -132,6 +136,8 @@ export function createServer(opts: {
         'INSERT INTO state (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at',
         [key, value, now],
       );
+      // Apply timezone changes immediately when set via state.
+      handleTimezoneStateSet(key, value);
       return { content: [{ type: 'text', text: `State '${key}' set.` }] };
     },
   );

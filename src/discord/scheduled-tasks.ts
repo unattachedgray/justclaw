@@ -19,6 +19,7 @@ import { DISCORD_MAX_LENGTH, splitMessage } from './discord-utils.js';
 import { buildTaskPreamble } from './session-context.js';
 import { findClaudeBin, buildClaudeEnv, buildShellCmd } from '../claude-spawn.js';
 import { computeNextDue } from '../tasks.js';
+import { formatLocalTime } from '../time-utils.js';
 
 const log = getLogger('scheduled-tasks');
 const TASK_TIMEOUT_MS = 5 * 60_000; // 5 min max per scheduled task
@@ -339,7 +340,7 @@ export async function checkAndRunScheduledTasks(
       try {
         const skipChannel = await resolveChannel(client, task, fallbackChannelId);
         if (skipChannel) {
-          await skipChannel.send(`⏭️ **Skipped stale task:** ${task.title} (was due ${task.due_at} UTC, bot was offline). Next run: ${next?.due_at} UTC.`);
+          await skipChannel.send(`⏭️ **Skipped stale task:** ${task.title} (was due ${formatLocalTime(task.due_at, { includeDate: true })}, bot was offline). Next run: ${next?.due_at ? formatLocalTime(next.due_at as string, { includeDate: true }) : 'unknown'}.`);
         }
       } catch (e: unknown) { log.warn('Failed to post stale-skip notice', { error: String(e) }); }
     }

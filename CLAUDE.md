@@ -66,6 +66,7 @@ pm2 save                           # Persist for reboot
 | `src/monitor-tools.ts` | Monitor MCP tools: create, list, check, history, update, delete |
 | `src/extractors.ts` | Multi-format document extraction: PDF, DOCX, XLSX, PPTX, HTML, EPUB, images |
 | `src/gemini.ts` | Gemini AI: image gen/edit, PDF analysis, vision, grounded search (5 tools) |
+| `src/time-utils.ts` | Shared timezone utilities: formatLocalTime, dual display, state-driven home/current tz |
 | `scripts/prediction-tracker.ts` | Deterministic investment prediction tracker (CLI, JSON-backed) |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |
 | `browser-extension/` | Chrome extension: browser bridge with 70 automation commands |
@@ -152,6 +153,17 @@ Errors are values. Add context at each layer. Fail fast at boundaries. Log struc
 | `SMTP_PASS` | SMTP password or app password |
 | `SMTP_FROM` | From address for outgoing emails (defaults to SMTP_USER) |
 | `DASHBOARD_PASSWORD` | Dashboard login password (default `88888888`) |
+
+## Timezone
+
+All timestamps stored in UTC internally. Display converted via `src/time-utils.ts`.
+
+| State key | Purpose | Default |
+|-----------|---------|---------|
+| `timezone_home` | User's default timezone | `America/New_York` (auto EDT/EST) |
+| `timezone_current` | Temporary travel override | _(none — uses home)_ |
+
+Set at runtime via `state_set`. No file edits or restarts needed. When `timezone_current` is set, all displays show dual format: `2:50 PM KST current / 8:50 AM EDT home`. Clear with `state_set("timezone_current", "")`. Both persist across restarts via `state` table.
 
 ## Skills
 

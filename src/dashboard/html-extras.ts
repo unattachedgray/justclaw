@@ -47,7 +47,7 @@ export function getHeatmapStyles(): string {
 
 export function getHeatmapScripts(): string {
   return `
-function renderHeatmap(grid, max, days) {
+function renderHeatmap(grid, max, days, tz) {
   const el = $('heatmap');
   if (!el) return;
   if (!grid || !grid.length) {
@@ -81,7 +81,7 @@ function renderHeatmap(grid, max, days) {
       const bg = alpha > 0
         ? 'rgba(' + rgb[0] + ',' + rgb[1] + ',' + rgb[2] + ',' + alpha.toFixed(2) + ')'
         : 'var(--surface2)';
-      const title = dayLabel + ' ' + h + ':00 EDT — ' + val + ' event' + (val !== 1 ? 's' : '');
+      const title = dayLabel + ' ' + h + ':00 ' + (tz || 'ET') + ' — ' + val + ' event' + (val !== 1 ? 's' : '');
       rowsHtml += '<div class="heatmap-cell" style="background:' + bg + '" title="' + title + '"></div>';
     }
     rowsHtml += '</div>';
@@ -107,7 +107,7 @@ function renderHeatmap(grid, max, days) {
 async function fetchHeatmap() {
   try {
     const data = await api('heatmap');
-    renderHeatmap(data.grid, data.max, data.days);
+    renderHeatmap(data.grid, data.max, data.days, data.tz);
   } catch {
     const el = $('heatmap');
     if (el) el.innerHTML = '<div class="empty">Heatmap unavailable</div>';

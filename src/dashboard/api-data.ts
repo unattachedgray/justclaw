@@ -11,6 +11,7 @@ import {
   getPm2Processes,
   type ResourceHistoryPoint,
 } from './api.js';
+import { getSqliteUtcOffset, getTimezoneAbbr } from '../time-utils.js';
 
 // Rolling 1-hour history for system resources (60 data points at 1-min resolution)
 const resourceHistory: ResourceHistoryPoint[] = [];
@@ -210,11 +211,12 @@ export function registerDataRoutes(api: Hono, db: DB, startTime: number): void {
   });
 
   api.get('/heatmap', (c) => {
+    const offset = getSqliteUtcOffset();
     const convRows = db.fetchall(
-      "SELECT strftime('%w', created_at, '-4 hours') as dow, strftime('%H', created_at, '-4 hours') as hour, COUNT(*) as count FROM conversations WHERE created_at >= date('now', '-30 days') GROUP BY dow, hour",
+      `SELECT strftime('%w', created_at, '${offset}') as dow, strftime('%H', created_at, '${offset}') as hour, COUNT(*) as count FROM conversations WHERE created_at >= date('now', '-30 days') GROUP BY dow, hour`,
     );
     const procRows = db.fetchall(
-      "SELECT strftime('%w', started_at, '-4 hours') as dow, strftime('%H', started_at, '-4 hours') as hour, COUNT(*) as count FROM process_registry WHERE started_at >= date('now', '-30 days') GROUP BY dow, hour",
+      `SELECT strftime('%w', started_at, '${offset}') as dow, strftime('%H', started_at, '${offset}') as hour, COUNT(*) as count FROM process_registry WHERE started_at >= date('now', '-30 days') GROUP BY dow, hour`,
     );
 
     const grid: number[][] = Array.from({ length: 7 }, () => Array(24).fill(0));
@@ -227,6 +229,7 @@ export function registerDataRoutes(api: Hono, db: DB, startTime: number): void {
       grid,
       max,
       days: ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'],
+      tz: getTimezoneAbbr(),
     });
   });
 

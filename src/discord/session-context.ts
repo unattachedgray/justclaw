@@ -12,6 +12,7 @@
 import type { DB } from '../db.js';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
+import { formatLocalTime } from '../time-utils.js';
 
 /**
  * Thresholds for session management.
@@ -183,7 +184,7 @@ export function buildIdentityPreamble(db: DB, channelId: string): string {
   if (tasks.length > 0) {
     parts.push('**Pending tasks:**');
     for (const t of tasks) {
-      const due = t.due_at ? ` (due: ${t.due_at})` : '';
+      const due = t.due_at ? ` (due: ${formatLocalTime(t.due_at as string, { includeDate: true })})` : '';
       parts.push(`- #${t.id} [P${t.priority}] ${t.title}${due}`);
     }
     parts.push('');

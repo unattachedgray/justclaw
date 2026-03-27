@@ -4,7 +4,7 @@ db_path = ""  # Empty = auto (data/charlie.db relative to project root)
 log_level = "info"
 default_channel = "discord"
 respond_to_all = true  # Respond to all messages (single-user Discord server)
-timezone = "UTC"
+timezone = "America/New_York"
 
 # Personality injected into MCP server instructions.
 personality = """You are Charlie, a capable and proactive personal AI assistant.

@@ -19,6 +19,7 @@ import { checkDueMonitors, formatMonitorAlert } from '../monitors.js';
 import { runAwarenessChecks, isWithinActiveHours, getMessageBudget, spendMessageBudget, formatAwarenessMessage } from './awareness.js';
 import { anticipate, formatAnticipation } from './anticipation.js';
 import { loadConfig } from '../config.js';
+import { formatLocalTimeNow24h } from '../time-utils.js';
 
 const log = getLogger('heartbeat');
 
@@ -79,7 +80,7 @@ export function startHeartbeat(opts: HeartbeatOpts): { stop: () => void; runNow:
     const status: PresenceUpdateStatus = severity === 'OK' ? PresenceUpdateStatus.Online
       : severity === 'WARN' ? PresenceUpdateStatus.Idle
       : PresenceUpdateStatus.DoNotDisturb;
-    const timeStr = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+    const timeStr = formatLocalTimeNow24h();
 
     opts.client.user?.setPresence({
       status,

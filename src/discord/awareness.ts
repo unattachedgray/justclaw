@@ -11,6 +11,7 @@
 
 import type { DB } from '../db.js';
 import { getLogger } from '../logger.js';
+import { formatLocalTime } from '../time-utils.js';
 
 const log = getLogger('awareness');
 
@@ -32,7 +33,7 @@ function checkOverdueTasks(db: DB): AwarenessSignal | null {
 
   if (rows.length === 0) return null;
 
-  const titles = rows.map((r) => `"${r.title}" (due ${(r.due_at as string).slice(0, 10)})`).join(', ');
+  const titles = rows.map((r) => `"${r.title}" (due ${formatLocalTime(r.due_at as string, { includeDate: true })})`).join(', ');
   return {
     type: 'overdue_tasks',
     detail: `${rows.length} overdue task(s): ${titles}`,

@@ -209,6 +209,27 @@ Claude Code CLI ──> justclaw MCP Server (stdio, 56 tools)
 | `SMTP_USER` | For email | — | SMTP login username |
 | `SMTP_PASS` | For email | — | SMTP password or app password |
 
+### Timezone
+
+All timestamps are stored in UTC internally. Display times are converted automatically.
+
+| State key | Purpose | Example |
+|-----------|---------|---------|
+| `timezone_home` | Your default timezone | `America/New_York` (auto EDT/EST) |
+| `timezone_current` | Temporary travel override | `Asia/Seoul`, `Europe/London` |
+
+Set via natural language ("set my home timezone to Pacific") or directly:
+```
+state_set(key: "timezone_home", value: "America/Los_Angeles")
+state_set(key: "timezone_current", value: "Asia/Seoul")
+state_set(key: "timezone_current", value: "")  # revert to home
+```
+
+When a current timezone is active, all displays show both:
+`2:50 PM KST current / 8:50 AM EDT home`
+
+Falls back to `config/charlie.toml` → `America/New_York` if no state keys are set.
+
 ### Persona (`config/charlie.toml`)
 
 Customize the assistant's name, personality, and defaults.

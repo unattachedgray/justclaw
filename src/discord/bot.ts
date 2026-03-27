@@ -23,6 +23,7 @@ import {
 import {
   activeClaudePids, callClaude, callClaudeWithRetry, sendFinalResponse,
 } from './claude-invoker.js';
+import { loadTimezoneState } from '../time-utils.js';
 
 export { activeClaudePids };
 
@@ -396,6 +397,8 @@ function initBotServices(): { token: string; allowedChannels: string[]; db: DB }
   const dbPath = resolveDbPath(config, projectRoot);
   const db = new DB(dbPath);
   _botDb = db;
+  // Restore timezone settings from persistent state.
+  loadTimezoneState(db);
   registerProcess(db, process.pid, 'discord-bot');
   log.info('Discord bot starting', {
     projectRoot, dbPath, pid: process.pid,
