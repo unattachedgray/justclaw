@@ -123,6 +123,15 @@ FTS5 full-text search, namespaces, access tracking, expiry, autodream-inspired d
 
 Dependencies, agent claiming, recurring tasks with cron expressions, per-task output channel routing. Template system with `{{variable}}` interpolation. Two-phase execution separates AI prep from deterministic delivery.
 
+### 🔄 Self-Improvement Loop (Hermes-inspired)
+
+Inspired by Nous Research's Hermes Agent, justclaw continuously learns from its own execution:
+
+- **Auto Skill Extraction** — when a task scores 80+, the system records what worked (sections found, duration, content quality) as a `skill` learning. One per template per week to avoid noise.
+- **Proactive Learning Injection** — task preambles include area-relevant learnings and high-confidence playbook entries. If email failed yesterday, today's report task knows about it before starting.
+- **Template Performance Tracking** — per-template stats (run count, avg score, avg duration, success streak) stored in the `state` table. After 3+ runs, stats are injected into task preambles. Three consecutive failures auto-record an error learning.
+- **Playbook Crystallization** — learnings applied 3+ times are promoted to playbook entries with Bayesian confidence scoring. Unused entries decay over 30 days.
+
 ### 🔍 Health Monitoring (10 checks, $0/cycle)
 
 Process registry audit, stale process scan, PM2 health, unanswered messages, system status, stuck tasks, doc staleness, event loop lag, memory usage, system resources. When deterministic checks fail for 3+ cycles, Claude diagnoses and recommends fixes — and past diagnoses inform future ones.

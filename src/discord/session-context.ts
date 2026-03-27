@@ -268,7 +268,7 @@ export function invalidatePreambleCache(channelId?: string): void {
 }
 
 /** Build a lighter preamble for scheduled tasks. */
-export function buildTaskPreamble(db: DB): string {
+export function buildTaskPreamble(db: DB, templateName?: string): string {
   const parts: string[] = [];
 
   parts.push('[System context — you are Charlie executing a scheduled task]');
@@ -293,6 +293,64 @@ export function buildTaskPreamble(db: DB): string {
   if (snapshot) {
     parts.push(`**Last context** (${snapshot.created_at}): ${String(snapshot.summary).slice(0, 200)}`);
     parts.push('');
+  }
+
+  // Area-relevant learnings for this task type
+  if (templateName) {
+    const areaMap: Record<string, string[]> = {
+      'daily-report': ['email', 'git-archive', 'scheduled-tasks'],
+      'rtx4090-hobby-report': ['email', 'git-archive', 'scheduled-tasks'],
+      'email-report': ['email', 'scheduled-tasks'],
+    };
+    const areas = areaMap[templateName] || ['scheduled-tasks'];
+    const placeholders = areas.map(() => '?').join(',');
+    const learnings = db.fetchall(
+      `SELECT lesson, area FROM learnings WHERE area IN (${placeholders}) ORDER BY created_at DESC LIMIT 5`,
+      areas,
+    );
+    if (learnings.length > 0) {
+      parts.push('**Past learnings for this task type:**');
+      for (const l of learnings) {
+        parts.push(`- [${l.area}] ${String(l.lesson).slice(0, 120)}`);
+      }
+      parts.push('');
+    }
+  }
+
+  // High-confidence playbook entries for this task template
+  if (templateName) {
+    const goal = `task:${templateName}`;
+    const entries = db.fetchall(
+      "SELECT action, confidence FROM playbook WHERE goal = ? AND confidence >= 0.3 ORDER BY confidence DESC LIMIT 3",
+      [goal],
+    );
+    if (entries.length > 0) {
+      parts.push('**Known fixes for past issues:**');
+      for (const e of entries) {
+        parts.push(`- (${Math.round((e.confidence as number) * 100)}%) ${String(e.action).slice(0, 120)}`);
+      }
+      parts.push('');
+    }
+  }
+
+  // Template performance stats
+  if (templateName) {
+    const statsRow = db.fetchone(
+      "SELECT value FROM state WHERE key = ?",
+      [`template_stats:${templateName}`],
+    );
+    if (statsRow?.value) {
+      try {
+        const stats = JSON.parse(statsRow.value as string);
+        if (stats.runs >= 3) {
+          const streakStr = stats.streak > 0
+            ? `${stats.streak} successes`
+            : stats.streak < 0 ? `${Math.abs(stats.streak)} failures` : 'neutral';
+          parts.push(`**Template stats** (${templateName}): ${stats.runs} runs, avg score ${stats.avgScore}/100, avg duration ${Math.round(stats.avgDurationMs / 1000)}s, streak: ${streakStr}`);
+          parts.push('');
+        }
+      } catch { /* ignore invalid stats */ }
+    }
   }
 
   return parts.join('\n');

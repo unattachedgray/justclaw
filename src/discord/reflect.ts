@@ -157,6 +157,31 @@ export function reflectOnTaskResult(
     }
   }
 
+  // Phase 3.5: Auto-extract skill learning on success
+  if (scan.score >= 80 && durationMs > 0) {
+    const skillTemplate = ref?.templateName || 'custom';
+
+    // Avoid duplicate skill learnings within a 7-day window
+    const existingSkill = db.fetchone(
+      `SELECT id FROM learnings WHERE category = 'skill' AND area = ?
+       AND created_at > datetime('now', '-7 days')`,
+      [skillTemplate],
+    );
+
+    if (!existingSkill) {
+      const durationSec = Math.round(durationMs / 1000);
+      const sectionList = scan.sections.found.join(', ');
+
+      addLearningProgrammatic(db, 'skill',
+        `Task "${task.title}" completed successfully (score: ${scan.score}/100, ${durationSec}s)`,
+        `Template ${skillTemplate} executed well: ${sectionList}. Duration: ${durationSec}s. Content length: ${resultText.length} chars.`,
+        skillTemplate,
+      );
+      learningsCreated++;
+      log.info('Auto-extracted skill learning', { templateName: skillTemplate, score: scan.score, durationSec });
+    }
+  }
+
   // Phase 4: Store reflection record
   db.execute(
     `INSERT INTO task_reflections (task_id, quality_score, error_class, errors_found, learnings_created, playbook_updated, duration_ms)
@@ -179,6 +204,11 @@ export function reflectOnTaskResult(
     }
     lines.push(`⏱️ Duration: ${Math.round(durationMs / 1000)}s | Class: ${errorClass}`);
     discordSummary = lines.join('\n');
+  }
+
+  // Phase 5.5: Update template performance stats
+  if (templateName) {
+    updateTemplateStats(db, templateName, scan.score, durationMs, errorClass);
   }
 
   log.info('Task reflection complete', {
@@ -330,4 +360,93 @@ export function getQualityTrend(db: DB, days: number = 7): { avg: number; count:
   const declining = count >= 3 && avg < olderAvg - 10;
 
   return { avg: Math.round(avg), count, declining };
+}
+
+// ---------------------------------------------------------------------------
+// Per-template performance tracking
+// ---------------------------------------------------------------------------
+
+interface TemplateStats {
+  runs: number;
+  totalScore: number;
+  avgScore: number;
+  totalDurationMs: number;
+  avgDurationMs: number;
+  successCount: number;
+  failCount: number;
+  lastErrorClass: ErrorClass | null;
+  lastRun: string;
+  /** Positive = consecutive successes, negative = consecutive failures */
+  streak: number;
+}
+
+const EMPTY_STATS: TemplateStats = {
+  runs: 0, totalScore: 0, avgScore: 0,
+  totalDurationMs: 0, avgDurationMs: 0,
+  successCount: 0, failCount: 0,
+  lastErrorClass: null, lastRun: '', streak: 0,
+};
+
+/**
+ * Track per-template performance statistics in the state table.
+ * Stored as JSON under key `template_stats:{name}`.
+ * Detects declining quality and records learnings on failure streaks.
+ */
+function updateTemplateStats(
+  db: DB,
+  templateName: string,
+  score: number,
+  durationMs: number,
+  errorClass: ErrorClass,
+): void {
+  const stateKey = `template_stats:${templateName}`;
+  const existing = db.fetchone("SELECT value FROM state WHERE key = ?", [stateKey]);
+
+  let stats: TemplateStats;
+  if (existing?.value) {
+    try {
+      stats = JSON.parse(existing.value as string);
+    } catch {
+      stats = { ...EMPTY_STATS };
+    }
+  } else {
+    stats = { ...EMPTY_STATS };
+  }
+
+  const isSuccess = score >= 70 && errorClass === 'none';
+  stats.runs++;
+  stats.totalScore += score;
+  stats.avgScore = Math.round(stats.totalScore / stats.runs);
+  stats.totalDurationMs += durationMs;
+  stats.avgDurationMs = Math.round(stats.totalDurationMs / stats.runs);
+  if (isSuccess) {
+    stats.successCount++;
+    stats.streak = stats.streak >= 0 ? stats.streak + 1 : 1;
+  } else {
+    stats.failCount++;
+    stats.streak = stats.streak <= 0 ? stats.streak - 1 : -1;
+    stats.lastErrorClass = errorClass;
+  }
+  stats.lastRun = new Date().toISOString().slice(0, 19);
+
+  db.execute(
+    "INSERT OR REPLACE INTO state (key, value) VALUES (?, ?)",
+    [stateKey, JSON.stringify(stats)],
+  );
+
+  // Alert on declining performance: 3+ consecutive failures
+  if (stats.streak <= -3) {
+    addLearningProgrammatic(db, 'error',
+      `Template ${templateName} has ${Math.abs(stats.streak)} consecutive failures`,
+      `Template "${templateName}" is failing repeatedly (streak: ${stats.streak}, last error: ${errorClass}). Review template and scripts.`,
+      templateName,
+    );
+    log.warn('Template performance declining', {
+      templateName, streak: stats.streak, avgScore: stats.avgScore,
+    });
+  }
+
+  log.debug('Template stats updated', {
+    templateName, runs: stats.runs, avgScore: stats.avgScore, streak: stats.streak,
+  });
 }

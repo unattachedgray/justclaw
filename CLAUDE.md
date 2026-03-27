@@ -72,7 +72,7 @@ pm2 save                           # Persist for reboot
 | `src/tasks-scheduling.ts` | Extracted scheduling tools: duplicate, create_from_template, update_var |
 | `src/playbook.ts` | Learned remediation patterns: consult, record, confidence scoring, crystallization, decay |
 | `src/discord/quality-scan.ts` | Deterministic quality analysis: error patterns, section detection, scoring |
-| `src/discord/reflect.ts` | Post-task/escalation reflection: learning extraction, playbook updates, anticipation validation |
+| `src/discord/reflect.ts` | Post-task/escalation reflection: skill extraction, template stats, playbook updates |
 | `data/task-templates/` | Template files for recurring tasks (e.g., `daily-report.md`) |
 | `scripts/prediction-tracker.ts` | Deterministic investment prediction tracker (CLI, JSON-backed) |
 | `ecosystem.config.cjs` | PM2 config: kill_timeout, max_restarts, wait_ready |

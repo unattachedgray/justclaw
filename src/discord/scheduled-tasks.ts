@@ -20,7 +20,7 @@ import { buildTaskPreamble } from './session-context.js';
 import { findClaudeBin, buildClaudeEnv, buildShellCmd } from '../claude-spawn.js';
 import { computeNextDue } from '../tasks.js';
 import { formatLocalTime } from '../time-utils.js';
-import { resolveTaskDescription, resolveTaskPhases } from '../task-templates.js';
+import { resolveTaskDescription, resolveTaskPhases, parseTemplateRef } from '../task-templates.js';
 import { reflectOnTaskResult } from './reflect.js';
 import { checkPendingDeliveries, registerPendingDelivery, executeInlineDelivery } from './task-delivery.js';
 
@@ -139,9 +139,10 @@ function runClaudeForTask(db: DB, task: DueTask, prepOnly: boolean = false): Pro
   const claudeBin = findClaudeBin();
 
   // Phase 2: Inject task preamble for context continuity.
-  const preamble = buildTaskPreamble(db);
+  const ref = parseTemplateRef(task.description);
+  const preamble = buildTaskPreamble(db, ref?.templateName);
   const phases = resolveTaskPhases(task.description, { TASK_ID: String(task.id) });
-  const taskDescription = prepOnly ? phases.prepPrompt : resolveTaskDescription(task.description);
+  const taskDescription = phases.prepPrompt;
 
   const completionInstructions = prepOnly
     ? [
